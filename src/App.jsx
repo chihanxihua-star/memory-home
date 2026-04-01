@@ -117,13 +117,13 @@ function Modal({ open, title, onClose, onSave, children }) {
   return (
     <>
       <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.25)", zIndex:100, animation:"fo 0.2s ease" }} />
-      <div style={{ position:"fixed", bottom:0, left:0, right:0, maxWidth:430, margin:"0 auto", background:"#fff", borderRadius:"14px 14px 0 0", padding:"24px 24px calc(env(safe-area-inset-bottom,24px)+24px)", zIndex:101, animation:"su 0.25s ease", maxHeight:"80vh", overflow:"auto" }}>
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, maxWidth:430, margin:"0 auto", background:"#fff", borderRadius:"14px 14px 0 0", padding:"24px 30px 40px", zIndex:101, animation:"su 0.25s ease", maxHeight:"80vh", overflow:"auto" }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
           <span style={{ fontSize:16, fontWeight:500, color:"#333" }}>{title}</span>
-          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", padding:12, margin:-8 }}>{IC.x("#999",20)}</button>
+          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", padding:14, margin:-10 }}>{IC.x("#999",20)}</button>
         </div>
         {children}
-        <button onClick={onSave} style={{ width:"100%", padding:"13px", marginTop:18, marginBottom:6, background:"#333", color:"#F8F5F0", border:"none", borderRadius:8, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>保存</button>
+        <button onClick={onSave} style={{ width:"100%", padding:"13px", marginTop:18, background:"#333", color:"#F8F5F0", border:"none", borderRadius:8, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>保存</button>
       </div>
     </>
   );
@@ -680,7 +680,7 @@ export default function App() {
       </div>
 
       {/* Content */}
-      <div ref={ref} style={{ flex:1, overflow:"auto", paddingTop:8, paddingBottom:90 }}>
+      <div ref={ref} style={{ flex:1, overflow:"auto", paddingTop:8, paddingBottom:100 }}>
         <Panel th={th} />
       </div>
 
@@ -689,7 +689,7 @@ export default function App() {
         position:"fixed", bottom:0, left:0, right:0,
         maxWidth:430, margin:"0 auto",
         display:"flex", justifyContent:"space-around", alignItems:"center",
-        padding:"6px 4px calc(env(safe-area-inset-bottom,16px)+16px)",
+        padding:"6px 4px 34px",
         background:th.nav,
         borderTop:th.dk?"1px solid rgba(248,245,240,0.08)":"1px solid rgba(0,0,0,0.04)",
         transition:"background 0.35s ease",
@@ -723,7 +723,7 @@ export default function App() {
           position:"fixed", bottom:0, left:0, right:0,
           maxWidth:430, margin:"0 auto",
           background:"#fff", borderRadius:"12px 12px 0 0",
-          padding:"14px 14px calc(env(safe-area-inset-bottom,14px)+14px)",
+          padding:"14px 14px 34px",
           animation:"su 0.25s ease", zIndex:11,
           boxShadow:"0 -4px 16px rgba(0,0,0,0.05)",
         }}>
