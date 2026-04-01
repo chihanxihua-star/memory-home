@@ -117,13 +117,13 @@ function Modal({ open, title, onClose, onSave, children }) {
   return (
     <>
       <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.25)", zIndex:100, animation:"fo 0.2s ease" }} />
-      <div style={{ position:"fixed", bottom:0, left:0, right:0, maxWidth:430, margin:"0 auto", background:"#fff", borderRadius:"14px 14px 0 0", padding:"16px 16px calc(env(safe-area-inset-bottom,16px)+16px)", zIndex:101, animation:"su 0.25s ease", maxHeight:"80vh", overflow:"auto" }}>
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, maxWidth:430, margin:"0 auto", background:"#fff", borderRadius:"14px 14px 0 0", padding:"20px 20px calc(env(safe-area-inset-bottom,20px)+20px)", zIndex:101, animation:"su 0.25s ease", maxHeight:"80vh", overflow:"auto" }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
           <span style={{ fontSize:15, fontWeight:500, color:"#333" }}>{title}</span>
-          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", padding:2 }}>{IC.x("#999",16)}</button>
+          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", padding:10, margin:-6 }}>{IC.x("#999",18)}</button>
         </div>
         {children}
-        <button onClick={onSave} style={{ width:"100%", padding:"10px", marginTop:14, background:"#333", color:"#F8F5F0", border:"none", borderRadius:7, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>保存</button>
+        <button onClick={onSave} style={{ width:"100%", padding:"12px", marginTop:16, marginBottom:4, background:"#333", color:"#F8F5F0", border:"none", borderRadius:7, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>保存</button>
       </div>
     </>
   );
@@ -614,7 +614,7 @@ export default function App() {
 
   return (
     <div style={{
-      width:"100%", maxWidth:430, margin:"0 auto", height:"100vh",
+      width:"100%", maxWidth:430, margin:"0 auto", height:"100dvh",
       display:"flex", flexDirection:"column",
       background:th.bg,
       fontFamily:"'Noto Serif SC','Songti SC','STSong',serif",
@@ -647,9 +647,10 @@ export default function App() {
 
       {/* Bottom Nav */}
       <div style={{
-        position:"absolute", bottom:0, left:0, right:0,
+        position:"fixed", bottom:0, left:0, right:0,
+        maxWidth:430, margin:"0 auto",
         display:"flex", justifyContent:"space-around", alignItems:"center",
-        padding:"5px 4px calc(env(safe-area-inset-bottom,5px)+5px)",
+        padding:"5px 4px calc(env(safe-area-inset-bottom,8px)+8px)",
         background:th.nav,
         borderTop:th.dk?"1px solid rgba(248,245,240,0.08)":"1px solid rgba(0,0,0,0.04)",
         transition:"background 0.35s ease",
@@ -678,9 +679,10 @@ export default function App() {
 
       {/* Drawer */}
       {drawer && <>
-        <div onClick={()=>setDrawer(false)} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.15)", animation:"fo 0.2s ease", zIndex:10 }} />
+        <div onClick={()=>setDrawer(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.15)", animation:"fo 0.2s ease", zIndex:10 }} />
         <div style={{
-          position:"absolute", bottom:0, left:0, right:0,
+          position:"fixed", bottom:0, left:0, right:0,
+          maxWidth:430, margin:"0 auto",
           background:"#fff", borderRadius:"12px 12px 0 0",
           padding:"14px 14px calc(env(safe-area-inset-bottom,14px)+14px)",
           animation:"su 0.25s ease", zIndex:11,
