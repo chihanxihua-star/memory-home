@@ -117,13 +117,13 @@ function Modal({ open, title, onClose, onSave, children }) {
   return (
     <>
       <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.25)", zIndex:100, animation:"fo 0.2s ease" }} />
-      <div style={{ position:"fixed", bottom:0, left:0, right:0, maxWidth:430, margin:"0 auto", background:"#fff", borderRadius:"14px 14px 0 0", padding:"20px 20px calc(env(safe-area-inset-bottom,20px)+20px)", zIndex:101, animation:"su 0.25s ease", maxHeight:"80vh", overflow:"auto" }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
-          <span style={{ fontSize:15, fontWeight:500, color:"#333" }}>{title}</span>
-          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", padding:10, margin:-6 }}>{IC.x("#999",18)}</button>
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, maxWidth:430, margin:"0 auto", background:"#fff", borderRadius:"14px 14px 0 0", padding:"24px 24px calc(env(safe-area-inset-bottom,24px)+24px)", zIndex:101, animation:"su 0.25s ease", maxHeight:"80vh", overflow:"auto" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+          <span style={{ fontSize:16, fontWeight:500, color:"#333" }}>{title}</span>
+          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", padding:12, margin:-8 }}>{IC.x("#999",20)}</button>
         </div>
         {children}
-        <button onClick={onSave} style={{ width:"100%", padding:"12px", marginTop:16, marginBottom:4, background:"#333", color:"#F8F5F0", border:"none", borderRadius:7, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>保存</button>
+        <button onClick={onSave} style={{ width:"100%", padding:"13px", marginTop:18, marginBottom:6, background:"#333", color:"#F8F5F0", border:"none", borderRadius:8, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>保存</button>
       </div>
     </>
   );
@@ -523,6 +523,8 @@ function Tide({ th }) {
   const [fdate, setFdate] = useState("");
   const [ftype, setFtype] = useState("period");
   const [fflow, setFflow] = useState("moderate");
+  const [fnotes, setFnotes] = useState("");
+  const [editId, setEditId] = useState(null);
 
   const load = useCallback(async () => {
     const { data:d } = await supabase.from("memories").select("*").eq("layer","tide");
@@ -536,7 +538,8 @@ function Tide({ th }) {
   const wk = ["日","一","二","三","四","五","六"];
 
   const tm = {};
-  data.forEach(t => { if(t.event_date) { const dd=new Date(t.event_date+"T00:00:00"); tm[`${dd.getFullYear()}-${dd.getMonth()}-${dd.getDate()}`]=t.context; } });
+  const tmId = {};
+  data.forEach(t => { if(t.event_date) { const dd=new Date(t.event_date+"T00:00:00"); const k=`${dd.getFullYear()}-${dd.getMonth()}-${dd.getDate()}`; tm[k]=t.context; tmId[k]=t; } });
 
   const mk = (day) => {
     const k = `${vY}-${vM}-${day}`;
@@ -550,11 +553,42 @@ function Tide({ th }) {
   const prev = () => { if(vM===0){setVM(11);setVY(y=>y-1);}else setVM(m=>m-1); };
   const next = () => { if(vM===11){setVM(0);setVY(y=>y+1);}else setVM(m=>m+1); };
 
+  const tapDay = (day) => {
+    const dateStr = `${vY}-${String(vM+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    const k = `${vY}-${vM}-${day}`;
+    const existing = tmId[k];
+    if (existing) {
+      setFdate(dateStr);
+      setFtype(existing.context?.type || "period");
+      setFflow(existing.context?.flow || "moderate");
+      setFnotes(existing.context?.notes || "");
+      setEditId(existing.id);
+      setModal("edit");
+    } else {
+      setFdate(dateStr);
+      setFtype("period");
+      setFflow("moderate");
+      setFnotes("");
+      setEditId(null);
+      setModal("add");
+    }
+  };
+
   const save = async () => {
     if (!fdate) return;
-    const ctx = ftype === "period" ? { type:"period", flow:fflow } : { type:"intimacy" };
-    await insertMem({ layer:"tide", content: ftype==="period"?"经期记录":"亲密记录", event_date:fdate, context:ctx, author:"宝" });
-    setModal(null); setFdate(""); load();
+    const ctx = ftype === "period" ? { type:"period", flow:fflow } : { type:"intimacy", notes:fnotes||undefined };
+    if (editId) {
+      await updateMem(editId, { event_date:fdate, context:ctx });
+    } else {
+      await insertMem({ layer:"tide", content: ftype==="period"?"经期记录":"亲密记录", event_date:fdate, context:ctx, author:"宝" });
+    }
+    setModal(null); setFdate(""); setEditId(null); load();
+  };
+
+  const del = async () => {
+    if (editId && confirm("删除这条记录？")) {
+      await deleteMem(editId); setModal(null); setEditId(null); load();
+    }
   };
 
   return (<div style={{ padding:"0 16px" }}>
@@ -569,9 +603,10 @@ function Tide({ th }) {
       {[...Array(dim)].map((_,i) => {
         const day=i+1;
         const isT=day===now.getDate()&&vM===now.getMonth()&&vY===now.getFullYear();
+        const hasData = !!tm[`${vY}-${vM}-${day}`];
         return (
-          <div key={day} style={{ padding:"5px 0", cursor:"pointer", borderRadius:5, background:isT?`${th.ac}18`:"transparent" }}>
-            <div style={{ fontSize:12, color:isT?th.ac:"#666" }}>{day}</div>
+          <div key={day} onClick={()=>tapDay(day)} style={{ padding:"5px 0", cursor:"pointer", borderRadius:5, background:isT?`${th.ac}18`:"transparent", transition:"background 0.15s" }}>
+            <div style={{ fontSize:12, color:isT?th.ac:hasData?"#555":"#999", fontWeight:hasData?500:400 }}>{day}</div>
             {mk(day)}
           </div>
         );
@@ -581,8 +616,8 @@ function Tide({ th }) {
       <div style={{ display:"flex", alignItems:"center", gap:4, fontSize:11, color:"#888" }}><div style={{ width:6, height:6, borderRadius:"50%", background:"#d4727b" }} /> 经期</div>
       <div style={{ display:"flex", alignItems:"center", gap:4, fontSize:11, color:"#888" }}><span style={{ fontSize:10, color:"#c48a96" }}>♥</span> 亲密</div>
     </div>
-    <AddBtn label="记录" ac={th.ac} onClick={()=>{ setFdate(""); setFtype("period"); setFflow("moderate"); setModal("add"); }} />
-    <Modal open={!!modal} title="记录" onClose={()=>setModal(null)} onSave={save}>
+    <div style={{ fontSize:10, color:"#bbb", textAlign:"center", marginTop:8 }}>点击日期可添加或编辑记录</div>
+    <Modal open={!!modal} title={editId?"编辑记录":"添加记录"} onClose={()=>{setModal(null);setEditId(null);}} onSave={save}>
       <Field label="日期"><TInput value={fdate} set={setFdate} type="date" /></Field>
       <Field label="类型">
         <div style={{ display:"flex", gap:6 }}>
@@ -596,6 +631,10 @@ function Tide({ th }) {
           </div>
         </Field>
       )}
+      {ftype==="intimacy" && (
+        <Field label="备注（可选）"><TInput value={fnotes} set={setFnotes} placeholder="想记点什么…" /></Field>
+      )}
+      {editId && <button onClick={del} style={{ width:"100%", padding:"10px", marginTop:8, background:"transparent", border:"1px solid rgba(0,0,0,0.06)", borderRadius:8, color:"#ccc", fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>删除记录</button>}
     </Modal>
   </div>);
 }
@@ -641,7 +680,7 @@ export default function App() {
       </div>
 
       {/* Content */}
-      <div ref={ref} style={{ flex:1, overflow:"auto", paddingTop:8, paddingBottom:72 }}>
+      <div ref={ref} style={{ flex:1, overflow:"auto", paddingTop:8, paddingBottom:90 }}>
         <Panel th={th} />
       </div>
 
@@ -650,7 +689,7 @@ export default function App() {
         position:"fixed", bottom:0, left:0, right:0,
         maxWidth:430, margin:"0 auto",
         display:"flex", justifyContent:"space-around", alignItems:"center",
-        padding:"5px 4px calc(env(safe-area-inset-bottom,8px)+8px)",
+        padding:"6px 4px calc(env(safe-area-inset-bottom,16px)+16px)",
         background:th.nav,
         borderTop:th.dk?"1px solid rgba(248,245,240,0.08)":"1px solid rgba(0,0,0,0.04)",
         transition:"background 0.35s ease",
