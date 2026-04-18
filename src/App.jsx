@@ -190,14 +190,16 @@ function Diary({ th }) {
   const [modal, setModal] = useState(null);
   const [fc, setFc] = useState("");
   const [fs, setFs] = useState("进行中");
-  const tabs = [["diary","日记"],["summary","小结"],["todo","待办"]];
+  const tabs = [["diary","日记"],["summary","小结"],["digest","摘要"],["todo","待办"]];
 
   const load = useCallback(async () => {
     if (sub === "diary") {
       const all = await fetchLayer("diary");
-      setData(all.filter(x => !x.tags?.includes("小结") && !x.tags?.includes("待办")));
+      setData(all.filter(x => !x.tags?.includes("小结") && !x.tags?.includes("待办") && !x.tags?.includes("摘要")));
     } else if (sub === "summary") {
       setData(await fetchLayer("diary", { tags: ["小结"] }));
+    } else if (sub === "digest") {
+      setData(await fetchLayer("diary", { tags: ["摘要"] }));
     } else {
       setData(await fetchLayer("diary", { tags: ["待办"] }));
     }
@@ -213,6 +215,12 @@ function Diary({ th }) {
         await insertMem({ layer:"diary", content:fc.trim(), tags:["待办"], status:"进行中", author:"宝" });
       } else {
         await updateMem(modal.id, { content:fc.trim(), status:fs });
+      }
+    } else if (sub === "digest") {
+      if (modal === "add") {
+        await insertMem({ layer:"diary", content:fc.trim(), tags:["摘要"], author:"宝" });
+      } else {
+        await updateMem(modal.id, { content:fc.trim() });
       }
     } else {
       if (modal === "add") {
@@ -251,14 +259,16 @@ function Diary({ th }) {
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}><Author a={x.author}/><Time t={ft(x.created_at)}/></div>
           <div style={{ fontSize:13.5, color:"#333", lineHeight:1.75 }}>{x.content}</div>
           {sub==="diary" && <Acts onEdit={()=>edit(x)} onDel={()=>del(x.id)} />}
+          {sub==="digest" && <Acts onEdit={()=>edit(x)} onDel={()=>del(x.id)} />}
         </Box>
       ))}
       {!filtered.length && <div style={{ textAlign:"center", color:"#ccc", fontSize:13, padding:20 }}>空空的</div>}
       {sub==="diary" && <AddBtn label="写日记" ac={th.ac} onClick={()=>{ setFc(""); setModal("add"); }} />}
+      {sub==="digest" && <AddBtn label="写摘要" ac={th.ac} onClick={()=>{ setFc(""); setModal("add"); }} />}
       {sub==="todo" && <AddBtn label="新待办" ac={th.ac} onClick={()=>{ setFc(""); setModal("add"); }} />}
     </div>
-    <Modal open={!!modal} title={modal==="add"?(sub==="todo"?"新待办":"写日记"):"编辑"} onClose={()=>setModal(null)} onSave={save}>
-      <Field label="内容"><TArea value={fc} set={setFc} placeholder={sub==="todo"?"待办事项…":"今天想说的…"} rows={sub==="todo"?2:5} /></Field>
+    <Modal open={!!modal} title={modal==="add"?(sub==="todo"?"新待办":sub==="digest"?"写摘要":"写日记"):"编辑"} onClose={()=>setModal(null)} onSave={save}>
+      <Field label="内容"><TArea value={fc} set={setFc} placeholder={sub==="todo"?"待办事项…":sub==="digest"?"记录摘要…":"今天想说的…"} rows={sub==="todo"?2:5} /></Field>
       {sub==="todo" && modal!=="add" && (
         <Field label="状态">
           <div style={{ display:"flex", gap:6 }}>
