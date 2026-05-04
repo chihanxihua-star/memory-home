@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+# ...import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./lib/supabase";
+import ChatPanel from "./ChatPanel";
 
 /* ===== THEME ===== */
 const TH = {
@@ -10,11 +11,12 @@ const TH = {
   inspiration: { bg: "#F8F5F0", nav: "#F8F5F0", ac: "#b0a24e", name: "灵感", dk: false },
   chronicle:   { bg: "#F8F5F0", nav: "#F8F5F0", ac: "#5ea899", name: "朝夕录", dk: false },
   tide:        { bg: "#E6D2D5", nav: "#F8F5F0", ac: "#b07e87", name: "潮", dk: false },
+  chat:        { bg: "#F8F5F0", nav: "#F8F5F0", ac: "#8b9eb0", name: "澄", dk: false },
 };
 const AN = { "宝": "小狐狸", "Claude": "小章鱼" };
-const TABS1 = ["anchor","diary","murmure","reef"];
+const TABS1 = ["chat","murmure","diary","reef"];
 const TABS_ALL = [
-  { k: "anchor", l: "锚" },{ k: "diary", l: "枕边" },{ k: "murmure", l: "呢喃" },
+  { k: "chat", l: "澄" },{ k: "anchor", l: "锚" },{ k: "diary", l: "枕边" },{ k: "murmure", l: "呢喃" },
   { k: "reef", l: "暗礁" },{ k: "inspiration", l: "灵感" },{ k: "chronicle", l: "朝夕录" },{ k: "tide", l: "潮" },
 ];
 
@@ -27,6 +29,7 @@ const IC = {
   inspiration: (c,s=24) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l1.8 5.2H19l-4.2 3.1 1.6 5.2L12 12.6l-4.4 2.9 1.6-5.2L5 7.2h5.2L12 2z"/></svg>,
   chronicle: (c,s=24) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="4" x2="12" y2="20"/><path d="M8 7c2-1.5 4-1.5 4 0s-2 2-4 3.5"/><path d="M16 12c-2 1.5-4 1.5-4 0"/><path d="M8 15c2 1 4 1 4 0"/></svg>,
   tide: (c,s=24) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="4" y1="9" x2="20" y2="9"/><line x1="9" y1="4" x2="9" y2="9"/><line x1="15" y1="4" x2="15" y2="9"/><circle cx="12" cy="14.5" r="2" fill={c} opacity=".2" stroke="none"/></svg>,
+  chat: (c,s=24) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>,
   search: (c="#bbb",s=16) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.2" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6"/><line x1="15.5" y1="15.5" x2="20" y2="20"/></svg>,
   edit: (c="#bbb",s=14) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
   trash: (c="#ccc",s=14) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>,
@@ -651,15 +654,16 @@ function Tide({ th }) {
 
 /* ===== MAIN APP ===== */
 export default function App() {
-  const [tab, setTab] = useState("murmure");
+  const [tab, setTab] = useState("chat");
   const [drawer, setDrawer] = useState(false);
   const ref = useRef(null);
   const th = TH[tab];
 
   useEffect(() => { if(ref.current) ref.current.scrollTop=0; }, [tab]);
 
-  const panels = { anchor:Anchor, diary:Diary, murmure:Murmure, reef:Reef, inspiration:Inspiration, chronicle:Chronicle, tide:Tide };
+  const panels = { anchor:Anchor, diary:Diary, murmure:Murmure, reef:Reef, inspiration:Inspiration, chronicle:Chronicle, tide:Tide, chat:ChatPanel };
   const Panel = panels[tab];
+  const isChat = tab === "chat";
 
   return (
     <div style={{
@@ -684,15 +688,23 @@ export default function App() {
       `}</style>
 
       {/* Header */}
-      <div style={{ padding:"50px 16px 8px", display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
-        {IC[tab]?.(th.dk?"#F8F5F0":th.ac, 22)}
-        <span style={{ fontSize:18, fontWeight:300, color:th.dk?"#F8F5F0":"#333", letterSpacing:2 }}>{th.name}</span>
-      </div>
+      {!isChat && (
+        <div style={{ padding:"50px 16px 8px", display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
+          {IC[tab]?.(th.dk?"#F8F5F0":th.ac, 22)}
+          <span style={{ fontSize:18, fontWeight:300, color:th.dk?"#F8F5F0":"#333", letterSpacing:2 }}>{th.name}</span>
+        </div>
+      )}
 
       {/* Content */}
-      <div ref={ref} style={{ flex:1, overflow:"auto", paddingTop:8, paddingBottom:100 }}>
-        <Panel th={th} />
-      </div>
+      {isChat ? (
+        <div style={{ flex:1, overflow:"hidden", paddingTop:50, paddingBottom:88 }}>
+          <Panel th={th} />
+        </div>
+      ) : (
+        <div ref={ref} style={{ flex:1, overflow:"auto", paddingTop:8, paddingBottom:100 }}>
+          <Panel th={th} />
+        </div>
+      )}
 
       {/* Bottom Nav */}
       <div style={{
@@ -758,4 +770,4 @@ export default function App() {
       </>}
     </div>
   );
-}
+}...
