@@ -654,7 +654,7 @@ function Tide({ th }) {
 
 /* ===== MAIN APP ===== */
 const AUTH_TOKEN_KEY = "memhome-auth-token";
-const API_URL = import.meta.env.VITE_API_URL || "http://216.36.116.146:3001";
+const API_URL = import.meta.env.VITE_API_URL || "https://chat.jessaminee.top";
 
 function PasswordGate({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || "");
