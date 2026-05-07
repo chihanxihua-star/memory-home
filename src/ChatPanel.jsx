@@ -194,6 +194,13 @@ export default function ChatPanel({ th }) {
       case "delta":
         stream.current.delta += (msg.text || "");
         setStreamSnap(s => s ? { ...s, delta: stream.current.delta } : s);
+        // 长消息每次 delta 都滚到底部
+        if (scrollRef.current) {
+          requestAnimationFrame(() => {
+            const el = scrollRef.current;
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        }
         break;
       case "tool_use":
         stream.current.tools.push({ id: msg.id, name: msg.name, input: msg.input });
