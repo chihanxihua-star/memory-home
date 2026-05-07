@@ -1,4 +1,4 @@
-# ...import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./lib/supabase";
 import ChatPanel from "./ChatPanel";
 
@@ -653,7 +653,68 @@ function Tide({ th }) {
 }
 
 /* ===== MAIN APP ===== */
-export default function App() {
+const AUTH_TOKEN_KEY = "memhome-auth-token";
+const API_URL = import.meta.env.VITE_API_URL || "http://216.36.116.146:3001";
+
+function PasswordGate({ children }) {
+  const [token, setToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || "");
+  const [pwd, setPwd] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const onExpired = () => { localStorage.removeItem(AUTH_TOKEN_KEY); setToken(""); };
+    window.addEventListener("auth-expired", onExpired);
+    return () => window.removeEventListener("auth-expired", onExpired);
+  }, []);
+
+  if (token) return children;
+
+  const submit = async () => {
+    if (!pwd) return;
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(API_URL + "/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pwd }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.token) throw new Error(d.error || "密码错误");
+      localStorage.setItem(AUTH_TOKEN_KEY, d.token);
+      setToken(d.token);
+    } catch (e) { setErr(e.message || "登录失败"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:99999,
+      background:"#FBFAF6", color:"#333",
+      display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+      fontFamily:"'Noto Serif SC',Georgia,serif",
+    }}>
+      <div style={{ fontSize:13, letterSpacing:"0.22em", color:"#666", marginBottom:20 }}>请输入密码</div>
+      <input type="password" autoFocus value={pwd}
+        onChange={e => { setPwd(e.target.value); setErr(""); }}
+        onKeyDown={e => { if (e.key === "Enter") submit(); }}
+        style={{
+          background:"transparent", border:"none", borderBottom:"1px solid #DDD6CC",
+          padding:"8px 4px", fontSize:14, width:240, textAlign:"center",
+          outline:"none", color:"#333", fontFamily:"inherit",
+        }}/>
+      <div style={{ fontSize:11, color:"#c0392b", height:16, marginTop:10, letterSpacing:"0.05em" }}>{err}</div>
+      <button onClick={submit} disabled={busy}
+        style={{
+          marginTop:14, background:"#333", color:"#FBFAF6", border:"none",
+          padding:"9px 32px", borderRadius:4, letterSpacing:"0.22em", fontSize:11,
+          cursor: busy ? "default" : "pointer", fontFamily:"inherit",
+        }}>{busy ? "…" : "解锁"}</button>
+    </div>
+  );
+}
+
+function AppInner() {
   const [tab, setTab] = useState("chat");
   const [drawer, setDrawer] = useState(false);
   const ref = useRef(null);
@@ -770,4 +831,8 @@ export default function App() {
       </>}
     </div>
   );
-}...
+}
+
+export default function App() {
+  return <PasswordGate><AppInner/></PasswordGate>;
+}

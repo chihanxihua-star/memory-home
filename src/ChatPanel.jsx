@@ -1,10 +1,28 @@
-# ...import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./lib/supabase";
 
 /* ===== CONFIG ===== */
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://216.36.116.146:3001";
 const API_URL = import.meta.env.VITE_API_URL || "http://216.36.116.146:3001";
 const PROJECT_ID = "b5e5d83a-0c17-4421-a0e2-217519ed62fb";
+
+/* ===== AUTH ===== */
+const AUTH_TOKEN_KEY = "memhome-auth-token";
+function getAuthToken() { return localStorage.getItem(AUTH_TOKEN_KEY) || ""; }
+function authHeaders() {
+  const t = getAuthToken();
+  return t ? { Authorization: "Bearer " + t } : {};
+}
+function authedFetch(url, opts = {}) {
+  const headers = { ...(opts.headers || {}), ...authHeaders() };
+  return fetch(url, { ...opts, headers }).then(r => {
+    if (r.status === 401) {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      window.dispatchEvent(new CustomEvent("auth-expired"));
+    }
+    return r;
+  });
+}
 
 /* ===== MARKDOWN ===== */
 const esc = t => t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -138,7 +156,8 @@ export default function ChatPanel({ th }) {
   const connectWS = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     try {
-      const ws = new WebSocket(WS_URL);
+      const token = getAuthToken();
+      const ws = new WebSocket(WS_URL + (token ? ("?token=" + encodeURIComponent(token)) : ""));
       ws.onopen = () => {
         console.log("[ws] connected");
         clearTimeout(reconnectTimer.current);
@@ -233,7 +252,7 @@ export default function ChatPanel({ th }) {
   /* --- health check --- */
   const checkHealth = useCallback(async () => {
     try {
-      const r = await fetch(`${API_URL}/api/health`);
+      const r = await authedFetch(`${API_URL}/api/health`);
       const d = await r.json();
       setCcStatus(d.cc_ready ? "ready" : "down");
     } catch {
@@ -254,7 +273,7 @@ export default function ChatPanel({ th }) {
 
   const createConv = useCallback(async () => {
     try {
-      const r = await fetch(`${API_URL}/api/conversations`, {
+      const r = await authedFetch(`${API_URL}/api/conversations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "新对话", project_id: PROJECT_ID }),
@@ -278,7 +297,7 @@ export default function ChatPanel({ th }) {
   const loadMessages = useCallback(async (cid) => {
     if (!cid) return;
     try {
-      const r = await fetch(`${API_URL}/api/conversations/${cid}/messages`);
+      const r = await authedFetch(`${API_URL}/api/conversations/${cid}/messages`);
       const d = await r.json();
       const arr = Array.isArray(d) ? d : d.messages || [];
       setMessages(arr.map(m => ({
@@ -684,4 +703,4 @@ function ToolCallsBlock({ calls, dk }) {
       )}
     </div>
   );
-}...
+}
