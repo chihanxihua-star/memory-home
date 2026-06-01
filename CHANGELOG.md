@@ -14,6 +14,32 @@
 
 ---
 
+## 2026-06-01 · [后端+前端] 卡死哨兵 — 思考链 hang 自动唤醒重发 + 前端三状态显示
+
+**为什么**：Opus 4.8 在复杂上下文里连续调工具时，偶尔写出一个格式坏掉的工具调用；CC 提醒"格式错、重试"后它**不重试，直接卡在思考链里不动（真 hang）**。试过用 hook 救——**不行**：hang 不产出任何 assistant 输出，不触发 Stop/PreToolUse 等任何事件，hook 无从介入。唯一出路是后端主动检测+自救。
+
+**判据（tmux 驱动不走流式事件，靠 transcript）**：哨兵每 10s 扫一次，四条全中才算卡死——① 有 `activeTurn`；② 屏幕 `esc to interrupt` 在（CC 自认在忙）；③ transcript 文件连续 **`WD_STALL_MS`=90s** 没长（看 mtime）；④ 不是停在"已发起工具调用等结果"（排除等慢工具，靠 `awaitingToolResult()`）。
+
+**动作**：
+- 第 1/2 次（`WD_MAX_WAKE`=2）：broadcast `kind:'watchdog'`（同 `_wdId` 原地更新，文案"小太阳睡着了，正在唤醒"→"…再次唤醒"）→ `cc.interrupt()` 掐断 → **重发**（格式提醒 + `cc.lastSent` 原文）→ 重建 `activeTurn`（带回原 ws/conv）。
+- 第 3 次仍卡 → 放弃：广播"小太阳已经睡着了"（前端黑字）+ 复刻暂停键（`activeTurn.stopped=true` + `interrupt()`）**自动解锁**（= 替用户按暂停，免得人不在场干锁到 660s）。
+- 用户手动 stop（`turn.stopped`）时哨兵**让位**（人工优先）。
+
+**改了哪些**：
+- `server/tmux-manager.js`：`send()` 存 `this.lastSent`；新增 `transcriptMtime()`、`awaitingToolResult()`。
+- `server/index.js`：`turn_done` 开头加 `if (turn.watchdogWake) return`（掐断的卡死轮静默丢弃残块，不补发/不解析/不flush）；`cc.on('error')` 之后加哨兵 `setInterval`（`USE_TMUX` 守卫）。
+- `cheng-memory/src/ChatPanel.jsx`：system 消息带 `state` 字段；`watchdog` 走同 id 原地替换；渲染分支 `watchdog`（`waking`=复用 `ForgePendingRow` 呼吸动画 / `asleep`=黑字居中）。
+
+**跟现有 660s 的关系**：`_watchTurn` 的 660s 单轮上限**不动**，作为哨兵都救不活时的最终止损（哨兵几十秒就介入，660s 是兜底）。
+
+**待验证/调参**：① `WD_STALL_MS`=90s 是拍的初值，上线看真实卡死现场再收紧/放宽；② `interrupt()` 的 C-c 对"真 hang"能否捅进去**没实测过**（所以留了 2 次上限 + 放弃解锁兜底，C-c 无效也不死磕）；③ "等慢工具 vs 卡死"靠 `awaitingToolResult()` 区分，需观察准不准；④ 卡死期间用户若发新消息进 `pendingBuffer`，与重发的先后未特殊处理（边缘情况）。
+
+**生效**：前端已 `npm run build` 上线；后端需 `systemctl restart cheng-backend` 才生效（会软失忆重启澄一次）。**写本条时后端尚未重启**，等用户定时机。
+
+**回滚**：删 index.js 哨兵块 + `turn.watchdogWake` 那行 + tmux-manager 三处 + 前端 watchdog 分支/state 字段，前端重 build。grep：`卡死哨兵`、`WATCHDOG`、`小太阳睡着了`、`watchdogWake`。
+
+---
+
 ## 2026-06-01 · [后端] 失忆改成「不删浮现区」（保留 <浮现>）
 
 **需求**：之前点失忆，`amnesia` 流程会把 `~/.claude/CLAUDE.md` 的 `<浮现>` 区一起清空。改成**失忆时保留浮现区**，只清 forge 写的 `<上次对话总结>`。
