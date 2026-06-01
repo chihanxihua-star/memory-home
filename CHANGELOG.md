@@ -14,6 +14,18 @@
 
 ---
 
+## 2026-06-01 · [后端] 失忆改成「不删浮现区」（保留 <浮现>）
+
+**需求**：之前点失忆，`amnesia` 流程会把 `~/.claude/CLAUDE.md` 的 `<浮现>` 区一起清空。改成**失忆时保留浮现区**，只清 forge 写的 `<上次对话总结>`。
+
+**改了什么**：`server/index.js` 的 amnesia 处理（约 L1198-1202）去掉 `await clearFuxianBlock();` 那一步调用，并把上面的注释改成「只清上次对话总结、浮现保留不清」。`clearFuxianBlock()` 函数定义（L225）**保留未删**（现已无人调用，无害），其他逻辑一律没动——遵用户「其他不动」。
+
+**生效条件**：CLAUDE.md/这段逻辑只在后端 node 进程里跑，改完**需 `systemctl restart cheng-backend`** 才生效（会软失忆重启澄一次、丢 CC 上下文）。本次**只改代码、未重启**，等用户决定何时重启。
+
+**回滚**：在 L1201 后加回 `try { await clearFuxianBlock(); } catch (e) { console.warn('amnesia clear 浮现:', e.message); }`。grep：`失忆改成「不删浮现区」`、`clearFuxianBlock`。
+
+---
+
 ## 2026-06-01 · [基建] forge-reload 回调地址 3001→3002（对齐搬端口后的后端）
 
 **做了什么**：`/root/forge-reload/config.json` 的 `backend_restart_url` 由 `:3001` 改 `:3002`。因为后端搬到 3002（见下条），forge 锻造完要 POST 这个地址重启 CC，旧的 3001 已无人接。
