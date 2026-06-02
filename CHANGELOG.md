@@ -14,6 +14,26 @@
 
 ---
 
+## 2026-06-02 · [前端+后端] 合并 use-style + thinking 面板 + 保存后激活弹窗（cheng UI 待办①）
+
+**为什么**：消除两面板不对称——原 Thinking 保存=自动 `/cc/restart` 重启、use-style 保存=只写不重启。用户 5/30 定方案、6/2 做：**合成一个面板，保存只写 CLAUDE.md、激活才重启**。
+
+**前端（`cheng-memory/src/ChatPanel.jsx`）**：
+- 新增组件 `StyleThinkPanel`：use-style(开关+引导) + thinking包裹(开关+引导) + 原生思绪(开关) + 一个 SAVE。**保存 = 写 `/use-style` + `/thinking-toggle` 两接口、不重启**。
+- 保存后面板内切到「激活态」（抄 CCDocumentsTab saved 模板）：思考深度 effort 行 + 【失忆重启】+【选择模型重启 ▾】。失忆/选模型回调都带上 `native`，失忆额外带 `currentModel`。
+- `+` sheet 的「Thinking」「Use Style」两项**合成一项「风格 · 思考」**打开合并面板；移除旧 `ThinkingPanel`/`StylePanel` 挂载（**两组件定义保留未删、已无引用**，便于回滚）。
+- `amnesia` 签名补 `(effort, model, native)`、`selectModel` 补 `native`（分别透传到 `/cc/amnesia`、`/cc/restart`）；新增 `styleThinkPanelOpen` state。
+
+**后端（`server/index.js`）**：`/api/cc/amnesia` 的 `amnesiaOpts` 补收 `model`/`nativeThinking`（原只收 `effort`）→ 传给 `cc.restart()`（tmux-manager 已支持）。让"失忆激活"也能带模型/原生思考。
+
+**激活两条路**：失忆=`POST /cc/amnesia {effort,model,nativeThinking}`（清空）；选模型=`POST /cc/restart {forge:true,model,effort,nativeThinking}`（带摘要 forge、记忆续上）。原生 thinking 只能重启时生效，故都在激活这步随重启传。
+
+**生效**：前端已 `npm run build` 上线（刷新可见「风格 · 思考」面板）；**后端需 `systemctl restart cheng-backend`** 才让"失忆激活带 model/native"生效（选模型激活走 /cc/restart、不依赖后端改、已可用）。**写本条时后端尚未重启**。
+
+**回滚**：revert ChatPanel.jsx 相关段 + index.js amnesia 两行；旧 `ThinkingPanel`/`StylePanel` 定义还在，恢复 sheet 两项入口即可。grep：`StyleThinkPanel`、`风格 · 思考`、`styleThinkPanelOpen`。
+
+---
+
 ## 2026-06-01 · [后端+前端] 卡死哨兵 — 思考链 hang 自动唤醒重发 + 前端三状态显示
 
 **为什么**：Opus 4.8 在复杂上下文里连续调工具时，偶尔写出一个格式坏掉的工具调用；CC 提醒"格式错、重试"后它**不重试，直接卡在思考链里不动（真 hang）**。试过用 hook 救——**不行**：hang 不产出任何 assistant 输出，不触发 Stop/PreToolUse 等任何事件，hook 无从介入。唯一出路是后端主动检测+自救。
