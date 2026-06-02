@@ -14,6 +14,26 @@
 
 ---
 
+## 2026-06-02 · [基建] 补推 git 备份 — 在跑的后端代码此前只存在于 VPS，GitHub 上没有
+
+**为什么**：用户问"换 VPS 时靠 git 能不能完整恢复"。排查发现三处缺口：①正在跑的后端代码在子模块 `server/`（独立仓库 `memory-backend`）的本地分支 `tmux-migration`（commit `1037c40`）上，**远程只有 main、这条分支根本没 push** → 在跑的代码 GitHub 一份都没有，VPS 一挂就丢 tmux 迁移那条线。②父仓库 `memory-home` 的 `main` 本地 ahead 5（含子模块指针提交）。③`.env` 和 nginx 不在任何 git 里。
+
+**做了什么**：
+- `git -C server push -u origin tmux-migration` → memory-backend 新建远程分支 `tmux-migration` 并配 upstream；在跑的 `1037c40` 上云。
+- `git push origin main`（memory-home）→ 5 个提交推上，local==remote==`c054869`，ahead 0。子模块指针 `1037c40` 远程可解析，`clone --recursive` 能还原代码壳。
+- **未碰** `.env`、未碰端口、未提交子模块内的运行态文件（`.synced-cc-files.json`/`.toggle-drafts.json`/`nohup.out`）。
+
+**仍不在 git（换 VPS 必须手动处理）**：
+- `server/.env`（726B，被 .gitignore 忽略）：含 `SUPABASE_URL`/`SUPABASE_KEY`/`AUTH_PASSWORD`/`JWT_SECRET`/`PORT=3002`/`BARK_*`/`CC_DRIVER`/`SURFACING_*`。
+- nginx：`/etc/nginx/sites-available/chat.jessaminee.top`（不在任何 repo，转发 3 处 → `127.0.0.1:3002`）。
+- 二者后期还会变（端口、CC_DRIVER 翻 tmux、浮现参数、拆两 web），**故不做静态备份；换机当下现抓当时版本即可**（都小、可重建：Supabase key 后台再拿、密码/密钥自设、nginx 一个文件）。
+
+**端口提示**：`.env` 的 `PORT` 与 nginx `proxy_pass` 必须一致（现都 3002，代码默认 3001）。改端口跟 git/push 无关，两边一起改即可（6/01 的 502 就是两边不一致）。
+
+**结果**：现在 `clone --recursive` memory-home（main `c054869`）能完整拉到在跑的前后端代码；剩 `.env`+nginx 两份配置换机时补。transcript：session `a6e640b2`，grep 关键词「补推 git 备份」「tmux-migration 已推」。
+
+---
+
 ## 2026-06-02 · [前端+后端] 合并 use-style + thinking 面板 + 保存后激活弹窗（cheng UI 待办①）
 
 **为什么**：消除两面板不对称——原 Thinking 保存=自动 `/cc/restart` 重启、use-style 保存=只写不重启。用户 5/30 定方案、6/2 做：**合成一个面板，保存只写 CLAUDE.md、激活才重启**。
