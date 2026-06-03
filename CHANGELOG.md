@@ -55,7 +55,7 @@
   - 聊天A：`favedIds` Set；onDone 标记 `source_message_id`；**且持久**——切/进对话时 `useEffect([convId])` 查 `favorites_cheng` where `source_conversation_id=convId` 拉回所有已收藏 id，刷新/后台重进仍实心。
   - 拾光：`favedUuids` Set，仅本会话内(拾光消息无真实 id，`source_message_id` 存 null，做不了持久)——用户同意不做。
 
-**状态**：✅ build 过、lint 无新错。`65e9129` 已提交(按钮/弹窗/图标/会话内实心)；**持久化那段(useEffect 拉回)在 65e9129 之后、尚未提交**。未 push。transcript root session `1f249b92`。关键词 `favedIds`、`source_conversation_id 拉回`、`segBtn`。
+**状态**：✅ build 过、lint 无新错。`65e9129` 已提交(按钮/弹窗/图标/会话内实心)。〔更正 06-03晚：原写「持久化那段尚未提交、未 push」已过时——持久化后来提交为 `6d92e44`，**整条 split-chat-web 分支已全部 push**(实查 `origin/split-chat-web..split-chat-web` 为空)。〕transcript root session `1f249b92`。关键词 `favedIds`、`source_conversation_id 拉回`、`segBtn`。
 
 ---
 
@@ -71,7 +71,7 @@
 
 **收藏弹层试改全屏→已撤回**：commit e1ed9fd 之后我曾把聊天A `CollectionPicker` + 拾光 `CVCollectionPicker` 改成全屏思考面板样式，但**用户说"点击收藏不需要平铺，改回之前的样子"**，已 `git restore` 丢弃那两处未提交改动。所以**收藏弹层维持原样=底部弹层**(`cp-modal bottom` / 圆角 14px / 粉色按钮)。只有**板块本身**是思考风格，弹层不动。
 
-**已 commit**：`e1ed9fd`(低语全功能 + 板块思考风格 + 刷新，599行3文件)。注意之前以为"拾光换源/删聊天记录那批未提交"是**记错了**，它们早提交过(162eb23/68dc8fa)。e1ed9fd 之后工作区已干净(弹层全屏改动已撤回)。**未 push**。
+**已 commit**：`e1ed9fd`(低语全功能 + 板块思考风格 + 刷新，599行3文件)。注意之前以为"拾光换源/删聊天记录那批未提交"是**记错了**，它们早提交过(162eb23/68dc8fa)。e1ed9fd 之后工作区已干净(弹层全屏改动已撤回)。〔更正 06-03晚：原写「未 push」已过时——split-chat-web 分支后来全部 push(含 e1ed9fd / 65e9129 / 6d92e44)。〕
 
 **状态**：✅ build 过、dist 更新。transcript root session `1f249b92`。关键词 `diyuTextBtn`、`左竖线`、`收藏弹层维持底部弹层`。
 
@@ -90,7 +90,7 @@
 - 浮条没选时文案改「点第一条和最后一条」。
 - 现在符合用户记忆中的模型：进多选 → 点第一条(干净，不带cc) → 点最后一条(中间自动填)。
 
-**状态**：✅ build 过、dist 更新。仍未 commit（同 split-chat-web 那批）。transcript：root session `1f249b92`（同下条）。关键词 `enterSelect 不预选`、`selectAnchorRef`、`点第一条和最后一条`。
+**状态**：✅ build 过、dist 更新。〔更正 06-03晚：原写「仍未 commit」已过时——此修复随 e1ed9fd 一并提交，split-chat-web 已全部 push 到 6d92e44。〕transcript：root session `1f249b92`（同下条）。关键词 `enterSelect 不预选`、`selectAnchorRef`、`点第一条和最后一条`。
 
 ---
 
@@ -110,7 +110,7 @@
 
 **收藏的 sender 约定**：聊天A存 `"user"/"assistant"`，拾光存 `"human"/"assistant"`——DiyuPanel 的 `DIYU_SENDER_NAME` 把 human/user 都映射成「小茉莉」、assistant→「澄」，两边都覆盖。
 
-**状态**：✅ `npm run build` 三块全过、`dist` 已更新(按 [[feedback_no_restart_cc]] 只 build 不重启)。lint：我的新增标识符**零新错**(既有基线 100+ 错是别处老问题)。**split-chat-web 分支未 commit**(沿用此前拾光换源/删聊天记录那批未提交改动，等用户验收一起提交)。回滚=git 还原三文件。
+**状态**：✅ `npm run build` 三块全过、`dist` 已更新(按 [[feedback_no_restart_cc]] 只 build 不重启)。lint：我的新增标识符**零新错**(既有基线 100+ 错是别处老问题)。**split-chat-web 分支未 commit**(沿用此前拾光换源/删聊天记录那批未提交改动，等用户验收一起提交)。〔更正 06-03晚：此后全部提交并 push——接线本身=e1ed9fd，UI+持久化=65e9129/6d92e44；实查本地未领先 origin，分支已全推。〕回滚=git 还原三文件。
 
 **用户还没实际点过**——建议验：主壳B首页点🖼进低语→聊天里 ♥ 一条→选/建合集→回低语看到→选段框选几条收成故事→拾光里同样试。
 
