@@ -14,7 +14,7 @@
 
 ---
 
-## 2026-06-03 · [基建/后端] 工具卡片用 hook 实时还原（方案B，已实现待重启激活）⏳
+## 2026-06-03 · [基建/后端] 工具卡片用 hook 实时还原（方案B）✅已激活已推送
 
 **背景**：切 tmux 驱动后工具卡片没了（tmux-manager 读 transcript 只抽正文+思考，没抽工具调用；老 stream-json 的 cc-manager 才 emit tool_use/tool_result）。前端工具卡片渲染（ToolCallsBlock/StreamingBubble/历史）**完全没坏**，纯缺后端喂事件。用户选**方案B**：只用 hook 把工具调用实时报上来，**不碰判轮/看门狗/600s**（那套调好的不动，风险最低）。
 
@@ -24,16 +24,22 @@
 - `PostToolUseFailure` 失败触发：`error`(字符串，含"Exit code N\n<原因>") + `tool_use_id`。
 - 三者用 tool_use_id 配对，正好映射现有 tool_use/tool_result 管道（前端按 id 配）。
 
-**改了什么**（3 处，**均未生效、待重启**）：
+**改了什么**（3 处，**已重启生效**）：
 - `[基建]` `/home/claude-user/chat-sandbox/.claude/cheng-tool-hook.sh`（新）：读 stdin → 后台 curl 到 `127.0.0.1:3002/api/internal/cc/tool-hook?phase=pre|post|fail` → **永远 exit 0、不阻塞 CC**（铁律：hook 同步阻塞会拖死 CC，所以 `D=$(cat)` 读完立刻 `( ...curl --max-time 2 & )` 子shell后台）。
 - `[基建]` `/home/claude-user/chat-sandbox/.claude/settings.json`（新）：PreToolUse/PostToolUse/PostToolUseFailure 三个 hook，matcher `*`，调上面脚本带 phase。⚠️项目级、作用域只在 chat-sandbox 跑的 cheng CC。
 - `[后端]` `index.js` 加 `POST /api/internal/cc/tool-hook`（loopback only + 立即 200）：phase=pre→`cc.emit('tool_use')`、post→`cc.emit('tool_result' is_error:false)`、fail→`cc.emit('tool_result' is_error:true, content=error)`。复用现有 cc.on 处理器（push activeTurn.tools + 广播 + 落库 tool_calls）。`node -c` 通过。
 
-**已排的险**：① 隔离 tmux 会话测过——加 hooks 后 CC 交互启动正常到 `bypass permissions on`，**没被 hook 审批挡住**；② -p 模式实测 hooks 正常触发；③ 防阻塞写法到位。
+**已排的险**：① 隔离 tmux 会话测过——加 hooks 后 CC 交互启动正常到 `bypass permissions on`，**没被 hook 审批挡住**；② -p 模式实测 hooks 正常触发；③ 防阻塞写法到位；④ 重启后 CC 已就绪、接口 loopback 返回 ok。
 
-**激活**：`systemctl restart cheng-backend`（重载 index.js + 重建 cheng tmux 会话读 hooks）= **一次软失忆**。用户挑不热聊时做。**尚未重启、尚未 commit**（memory-home）。回滚=删那两个文件 + 撤 index.js 那段。
+**⚠️ 激活时抓到并修掉的安全洞（顺带修了老的）**：`/api/internal/*` 的"只许 loopback"判断（`req.ip/socket.remoteAddress==127.0.0.1`）在本站架构下**被绕过**——站走 Cloudflare(回源 http:80) + nginx 反代 `/api/`，后端看到的源永远是 nginx(本机)，所以外网经 CF→nginx→后端也能打 `/api/internal/*`。**新加的 tool-hook 接口和早就存在的 `/api/internal/cc/restart` 都暴露了**。修法：nginx `chat.jessaminee.top` 配置加 `location /api/internal/ { return 403; }`（在 `location /api/` 之前，最长前缀优先），`nginx -t && systemctl reload nginx`。验证：公网/源站打 `/api/internal` → 403；hook 直连 `127.0.0.1:3002`（不走 nginx）→ 仍 ok。⚠️ nginx 配在 `/etc`(仓外)，换 VPS 要手搬这条。
 
-**transcript**：root session `1f249b92`。关键词 `cheng-tool-hook`、`tool-hook?phase`、`PostToolUseFailure`、`方案B`。
+**激活方式**（已执行）：`systemctl restart cheng-backend`（重载 index.js + 重建 cheng tmux 会话读 hooks）= 一次软失忆。重启后模型回到 savedCfg=sonnet-4-5。
+
+**已提交并推送**：子模块 memory-backend `bb26e72`(tmux-migration)、外层 memory-home `e60ca96`(main)。⚠️ hook 脚本/settings.json(`/home/claude-user/chat-sandbox/.claude/`)+ nginx 改动**都在仓外**，换 VPS 需手搬(内容见本条)。回滚=删那两文件 + 撤 index.js 那段 + 撤 nginx 那行。
+
+**仍待用户实测**：真聊天时澄调工具→卡片是否实时蹦（机制各环节已验，只差真turn)。
+
+**transcript**：root session `1f249b92`。关键词 `cheng-tool-hook`、`tool-hook?phase`、`PostToolUseFailure`、`方案B`、`api/internal 403`。
 
 ---
 
