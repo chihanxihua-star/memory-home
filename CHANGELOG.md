@@ -14,6 +14,184 @@
 
 ---
 
+## 2026-06-03 · [基建/后端] 工具卡片用 hook 实时还原（方案B，已实现待重启激活）⏳
+
+**背景**：切 tmux 驱动后工具卡片没了（tmux-manager 读 transcript 只抽正文+思考，没抽工具调用；老 stream-json 的 cc-manager 才 emit tool_use/tool_result）。前端工具卡片渲染（ToolCallsBlock/StreamingBubble/历史）**完全没坏**，纯缺后端喂事件。用户选**方案B**：只用 hook 把工具调用实时报上来，**不碰判轮/看门狗/600s**（那套调好的不动，风险最低）。
+
+**实测确认的 hook payload（claude 2.1.161，别信文档猜测）**：
+- `PreToolUse` 每个工具都触发：`tool_name / tool_input / tool_use_id`。
+- `PostToolUse` 只成功触发：`tool_response`(工具特定形状，Bash 是 `{stdout,stderr,...}` 不是 `{type,text}`) + `tool_use_id` + `duration_ms`。
+- `PostToolUseFailure` 失败触发：`error`(字符串，含"Exit code N\n<原因>") + `tool_use_id`。
+- 三者用 tool_use_id 配对，正好映射现有 tool_use/tool_result 管道（前端按 id 配）。
+
+**改了什么**（3 处，**均未生效、待重启**）：
+- `[基建]` `/home/claude-user/chat-sandbox/.claude/cheng-tool-hook.sh`（新）：读 stdin → 后台 curl 到 `127.0.0.1:3002/api/internal/cc/tool-hook?phase=pre|post|fail` → **永远 exit 0、不阻塞 CC**（铁律：hook 同步阻塞会拖死 CC，所以 `D=$(cat)` 读完立刻 `( ...curl --max-time 2 & )` 子shell后台）。
+- `[基建]` `/home/claude-user/chat-sandbox/.claude/settings.json`（新）：PreToolUse/PostToolUse/PostToolUseFailure 三个 hook，matcher `*`，调上面脚本带 phase。⚠️项目级、作用域只在 chat-sandbox 跑的 cheng CC。
+- `[后端]` `index.js` 加 `POST /api/internal/cc/tool-hook`（loopback only + 立即 200）：phase=pre→`cc.emit('tool_use')`、post→`cc.emit('tool_result' is_error:false)`、fail→`cc.emit('tool_result' is_error:true, content=error)`。复用现有 cc.on 处理器（push activeTurn.tools + 广播 + 落库 tool_calls）。`node -c` 通过。
+
+**已排的险**：① 隔离 tmux 会话测过——加 hooks 后 CC 交互启动正常到 `bypass permissions on`，**没被 hook 审批挡住**；② -p 模式实测 hooks 正常触发；③ 防阻塞写法到位。
+
+**激活**：`systemctl restart cheng-backend`（重载 index.js + 重建 cheng tmux 会话读 hooks）= **一次软失忆**。用户挑不热聊时做。**尚未重启、尚未 commit**（memory-home）。回滚=删那两个文件 + 撤 index.js 那段。
+
+**transcript**：root session `1f249b92`。关键词 `cheng-tool-hook`、`tool-hook?phase`、`PostToolUseFailure`、`方案B`。
+
+---
+
+## 2026-06-03 · [前端] 低语收藏 UI 多轮微调 + 收藏心实心(聊天持久) ✅
+
+承接 e1ed9fd 之后的用户逐条调整（commit `65e9129` + 后续持久化）：
+
+- **收藏弹层**：先试改全屏思考风格→用户否("点击收藏不需要平铺")，`git restore` 回退到底部弹层。最终：弹窗**去圆角**(borderRadius 0，聊天A `cp-modal bottom` inline 覆盖 / 拾光 inline)；但**按钮要圆角**。
+- **「建并存」「收藏为故事」按钮**：参考图(浅色/深色/跟随系统那种分段按钮，https://ibb.co/xqxhR7C1)→ 黑色按钮 `#2b2b2b` 深底 + `#f5f2ec` 米白字 + 圆角 8px + 字距；禁用=描边透明。聊天A 用 `cp-fav-new`/`cp-select-fav` CSS，拾光用模块级 `segBtn(on)`。
+- **拾光收藏入口跟聊天统一**：去掉"收藏"/"选段"文字标签 → 纯图标(同款心 + 勾选 SVG)。
+- **粉色清零**：残留 `#e0738a`(选段选中外框/选中圈/hover)全 sed 成 `var(--text-primary)`，整套黑白。
+- **收藏后心填实心**：收藏成功(单条♥ + 收藏为故事多选)→ 该消息心形 `fill: var(--text-primary)`(浅色主题=黑)。
+  - 聊天A：`favedIds` Set；onDone 标记 `source_message_id`；**且持久**——切/进对话时 `useEffect([convId])` 查 `favorites_cheng` where `source_conversation_id=convId` 拉回所有已收藏 id，刷新/后台重进仍实心。
+  - 拾光：`favedUuids` Set，仅本会话内(拾光消息无真实 id，`source_message_id` 存 null，做不了持久)——用户同意不做。
+
+**状态**：✅ build 过、lint 无新错。`65e9129` 已提交(按钮/弹窗/图标/会话内实心)；**持久化那段(useEffect 拉回)在 65e9129 之后、尚未提交**。未 push。transcript root session `1f249b92`。关键词 `favedIds`、`source_conversation_id 拉回`、`segBtn`。
+
+---
+
+## 2026-06-03 · [前端] 低语板块改「思考风格」+ 加刷新（同日）✅
+
+**用户要求**：① 给低语加刷新；② 面板风格参考聊天界面「思考(use-style/thinking)面板」那种调性（极简单色、下划线输入、字距拉开、衬线正文、纯文字按钮——不要我先前那种粉色按钮+边框卡片）。注：用户先说参考涟漪，我问岔了，改口说是参考思考风格。
+
+**改了什么**（全在 `MemoryManager.jsx` 的 DiyuPanel 一族）：
+- 新增 `diyuTextBtn`(素文字按钮) / `diyuRow`(扁平列表行带底部 hairline)，删掉没人用了的 `diyuCard`。
+- DiyuPanel 主视图：顶部「共 N 个合集」+ 右侧「+ 新建 / 刷新」文字按钮；搜索改下划线(`underlineStyle`)+ × 清空；合集列表改扁平行(衬线名 + 条数)。
+- DiyuCollection(合集内)：返回/刷新/删 改文字按钮；搜索下划线+×；加载更多改文字按钮；**也加了刷新**(reload load(0))。
+- DiyuFavCard + DiyuSearch 结果：卡片框 → 思考块那种「左竖线 + 衬线正文」。
+
+**收藏弹层试改全屏→已撤回**：commit e1ed9fd 之后我曾把聊天A `CollectionPicker` + 拾光 `CVCollectionPicker` 改成全屏思考面板样式，但**用户说"点击收藏不需要平铺，改回之前的样子"**，已 `git restore` 丢弃那两处未提交改动。所以**收藏弹层维持原样=底部弹层**(`cp-modal bottom` / 圆角 14px / 粉色按钮)。只有**板块本身**是思考风格，弹层不动。
+
+**已 commit**：`e1ed9fd`(低语全功能 + 板块思考风格 + 刷新，599行3文件)。注意之前以为"拾光换源/删聊天记录那批未提交"是**记错了**，它们早提交过(162eb23/68dc8fa)。e1ed9fd 之后工作区已干净(弹层全屏改动已撤回)。**未 push**。
+
+**状态**：✅ build 过、dist 更新。transcript root session `1f249b92`。关键词 `diyuTextBtn`、`左竖线`、`收藏弹层维持底部弹层`。
+
+---
+
+## 2026-06-03 · [前端] 低语「选段」框选 bug 修复（同日，紧接下条）✅
+
+**用户实测报的 bug**：聊天 A 选段时，「只点中自己(user)的一条，却自动把澄(cc)的也选上」；首尾框选不按预期。拾光也有此毛病（但拾光当时看着像没事，是因为正好选段在第一条上）。
+
+**真因**：「选段」按钮原本会把**点它的那条消息偷偷设成框选起点(anchor)**。于是用户以为在"点第一条"，其实点的是**第二个端点**，范围立刻从『选段那条』拉到这里、把中间的澄全圈进来。
+
+**改了什么**（`ChatPanel.jsx` + `ChatViewer.jsx` 对称改）：
+- `enterSelect/enterSel` 改成**只进入多选模式、不预选任何条**（anchor=null）。
+- `toggleSelect/toggleSel`：第一次点=设为起点(只选这一条)；之后点未选的→选「起点→此处」连续段；点已选的中间条→剔除。
+- 起点存进 **ref**(`selectAnchorRef`/`selAnchorRef`)再读，杜绝闭包取到旧 anchor。
+- 浮条没选时文案改「点第一条和最后一条」。
+- 现在符合用户记忆中的模型：进多选 → 点第一条(干净，不带cc) → 点最后一条(中间自动填)。
+
+**状态**：✅ build 过、dist 更新。仍未 commit（同 split-chat-web 那批）。transcript：root session `1f249b92`（同下条）。关键词 `enterSelect 不预选`、`selectAnchorRef`、`点第一条和最后一条`。
+
+---
+
+## 2026-06-03 · [前端] 低语收藏夹 — 接线 + 聊天A/拾光收藏入口全做完 ✅已上线
+
+**这是啥**：接着上个 CC（session 5ab69670）只建了表、写了板块本体没接线的活，把「低语」收藏夹**前端全部做完并 build 上线**。三块：①把已写好的板块挂进主壳 B 导航 ②聊天 A（ChatPanel）加 ♥ 收藏 + 故事多选 ③拾光（ChatViewer）加收藏 + 故事多选。设计来龙去脉见 [[project_diyu_favorites]] 和上一条。**图标用户最终定 🖼 emoji**（不是上个 CC 在上一条里写的「线条相框 SVG」，用户这次明确改口）。
+
+**核对过的底层（没动表，只确认）**：`favorites_cheng` 的 `source_conversation_id`/`source_message_id` 都是 **uuid 类型**（nullable）、`original_created_at` timestamptz、`tags` 非空但默认 `'{}'`、RLS=`allow_anon_all`（anon 增删改查全放行，前端直连）。`messages.id`/`conversation_id` 都是 uuid。做了一次真插入测试（建合集+2条+级联删）确认字段/类型/排序全对，已清干净（favorites_cheng 现 0 条）。
+
+**改了什么**：
+- `[前端] MemoryManager.jsx`（主壳 B）**接线 3 处**：`TABS` 加 `{key:"diyu",label:"低语"}`；HomePanel 卡片加 `{key:"diyu",icon:"🖼",name:"低语",sub:"珍藏的话"}`；中间 panel 渲染数组加 `{key:"diyu",Comp:DiyuPanel}`。点首页 🖼 卡片即进。**板块本体(DiyuPanel 等)是上个 CC 写的，本次没动**。
+- `[前端] ChatPanel.jsx`（聊天 A，独立 /chat/ 入口，用 `supabase` 客户端不是裸REST）：
+  - `MessageBubble` 动作区(复制旁)加 **♥**(收藏单条) + **选段**(进故事多选)两个按钮；只对真实 id(非 local-)且有正文的消息显示。澄的正文用 `extractThink().content` 去掉思考块。
+  - 新增 `CollectionPicker` 底部弹层(抖音式：新建合集 / 选已有 → 写 favorites_cheng 文字快照)。
+  - 故事多选：**首尾框选**(点已选→剔除；有起点则选起点到此处连续段；renderItems 顺序即对话原始顺序)，底部浮条「已选N · 收藏为故事」。状态 `favPending/selectMode/selectAnchor/selectedIds`，handler 在 renderItems useMemo 后。
+- `[前端] ChatViewer.jsx`（拾光，主壳 B 的 tab，懒加载）：同样的 ♥/选段/首尾框选/底部浮条/弹层，但**自包含**(`CVCollectionPicker` + 内联样式 + 自己的 toast)。⚠️**坑已避**：拾光读 supabase 时 messages 只 select 了 `role,content,thinking,created_at` **没取 id**，且一行 DB 拆成多气泡(uuid 是合成串 `${sid}-${idx}`)→ 没有真实消息 uuid → 收藏的 `source_message_id` 存 **null**(快照+会话id+时间足够回溯)。`source_conversation_id`=currentConv.uuid(真会话uuid，加了正则校验非uuid则存null)。注意拾光**原有的 `favorites`(localStorage 星标整段对话)跟这个收单条到 supabase 是两回事**，我用独立命名 `diyuPending/selMode/selIds` 没碰它。
+
+**收藏的 sender 约定**：聊天A存 `"user"/"assistant"`，拾光存 `"human"/"assistant"`——DiyuPanel 的 `DIYU_SENDER_NAME` 把 human/user 都映射成「小茉莉」、assistant→「澄」，两边都覆盖。
+
+**状态**：✅ `npm run build` 三块全过、`dist` 已更新(按 [[feedback_no_restart_cc]] 只 build 不重启)。lint：我的新增标识符**零新错**(既有基线 100+ 错是别处老问题)。**split-chat-web 分支未 commit**(沿用此前拾光换源/删聊天记录那批未提交改动，等用户验收一起提交)。回滚=git 还原三文件。
+
+**用户还没实际点过**——建议验：主壳B首页点🖼进低语→聊天里 ♥ 一条→选/建合集→回低语看到→选段框选几条收成故事→拾光里同样试。
+
+**transcript 指针**：root session `1f249b92`（06-03，"睡醒断片，看上个CC在忙啥"）。关键词 `CollectionPicker`、`CVCollectionPicker`、`首尾框选`、`selectAnchor`、`source_message_id 存 null`。
+
+---
+
+## 2026-06-02 · [基建/Supabase] 低语收藏夹 — 建表(设计定稿,前端待做)
+
+**这是啥**：cheng 新功能「低语」= 主壳 B 第 9 个独立板块,收藏澄说的话 / 把澄连讲的故事分段收成「合集」(带你的互动,一起写小说向)。是 [[project_cheng_app_plan]] 定稿排序的 ②收藏夹。本次只**建了 Supabase 表 + 存档设计**,前端代码未写。
+
+**设计要点(用户拍板)**：① 故事分段成合集 ② 零散同类单条也能进合集 ③ 能搜索 ④ 合集能命名。抖音式♥收藏(点♥弹底部面板,选/新建命名合集→确认,分类当下完成不用再去整理)。存**文字快照**(收藏即拷,原 session 没了/拾光换源都照样显示)。防卡=分页。合集**平铺一层**(无嵌套,像抖音)。
+
+**数据模型(Model Y:合集=唯一命名容器,比"单条/故事两类型"简洁)**：
+- `favorite_collections_cheng`(合集): id / name / created_at
+- `favorites_cheng`(收藏的单条消息): id / collection_id(级联删) / sender / **content(快照)** / source_conversation_id / source_message_id / **original_created_at(合集内按此排序→故事才顺)** / tags[] / note / position(预留) / created_at
+- 索引:collection_id、tags(gin)、original_created_at。RLS=`allow_anon_all`(跟 board_cheng/memories_cheng 同款,前端 anon key 直连 REST)。
+- migration 名:`create_diyu_favorites_cheng`。回滚=drop 两表。
+
+**交互(定稿,前端待实现)**：聊天 A 消息按钮区加 ♥心形→合集面板;拾光长按菜单加"收藏"(⚠️拾光已有的"收藏"是星标整段对话/localStorage,跟这个收单条消息是两回事);收故事=多选模式**首尾框选**(中间澄的+你的自动选)→按对话原始时间排序打包。低语板块图标=**线条相框 SVG**(跟其他板块统一,不用 🖼 emoji)。
+
+**为啥不用改后端**:主壳 B(MemoryManager.jsx)的 CRUD 是**前端直连 Supabase REST**(sbGet/sbPost…打 /rest/v1),不走 memory-home。所以低语照抄 memory/diary/board 那套 sbXxx 即可。详见记忆 [[project_diyu_favorites]]。transcript:本次 root 会话 5ab69670。
+
+---
+
+## 2026-06-02 · [前端] 删除两处「聊天记录」功能（头像点击 + 设置侧栏）— 拾光已覆盖 ✅已完成
+
+**为什么**：拾光(ChatViewer)刚换成读 Supabase `conversations`+`messages`（见下一条）后，聊天界面里另两处「聊天记录」与拾光**数据源完全相同、功能重复**，故删。逐行核对确认：
+- **入口①** 点 user 头像 → `HistoryModal`（全屏带日历的聊天记录）。
+- **入口②** 设置侧栏「聊天记录」→ `HistoryScreen`（日期范围 + 导出）。
+- 两者底层都用 `fetchProjectMessages`，查的是 `conversations`(`project_id = b5e5d83a… OR null`) + `messages`——**和拾光 `CV_PROJECT_ID` 完全同一个项目、同样的表、同样的 null 兜底**，数据零差异。拾光还多了收藏/改名/排序/导入。三者唯一差异：这俩有"按日历/日期范围回看"，拾光没有；用户确认不需要。
+
+**做了什么（全在 `cheng-memory/src/ChatPanel.jsx`）**：删 3 个函数定义——`HistoryModal`、`HistoryScreen`、`fetchProjectMessages`（按行范围整段删）；再摘 5 处引用——`historyOpen` state、user 头像点击分支 `setHistoryOpen(true)`、`{historyOpen && <HistoryModal/>}` 渲染、侧栏 `<SidebarItem>聊天记录</SidebarItem>`、路由 `if (screen === "history") return <HistoryScreen/>`。
+
+**按用户指示「只删说好的、其他不动」**：仅服务这俩界面的辅助函数/常量（`ymd`/`startOfDayISO`/`endOfDayISO`/`EXPORT_RANGES`/`chatDisplayName`/`stripBubbleMarkers`/`buildExportMarkdown`/`buildExportJSON`/`HM_NAV_BTN`/`HM_INPUT`）**故意保留未删**——现已无引用变死代码，但不影响 build；想清理是后续单独的事。注意 `formatChatTime` 被别处(4827/4913 一带)也用，**不能删**。
+
+**状态**：✅已完成。`npm run build` 通过、无残留引用。`split-chat-web` 分支已 commit+push（与上一条拾光换源同分支）。回滚=git 还原 ChatPanel.jsx。grep：`HistoryModal`、`fetchProjectMessages`、独特句「删除两处聊天记录」。transcript：本次 root 会话 5ab69670。
+
+---
+
+## 2026-06-02 · [前端] 拾光换源：VPS CC 会话文件 → Supabase messages（聊天记录云端化）✅已完成
+
+**目标（用户定）**：拾光(ChatViewer)现读 VPS 上澄的原始 CC 会话(`/cc/sessions` JSONL)；改成读 Supabase 的 `conversations`+`messages`（你↔澄的聊天）。**保持原有功能**(列表/查看/搜索/收藏/改名)，只换数据源。
+
+**为什么 / 已确认事实**：
+- Supabase `messages` 是完整聊天：**182 段对话、4699 条消息、回溯到 2026-04-04**（比 VPS 更全更连续，云端持久、不怕 VPS 挂）。字段含 content/thinking/images/tool_calls/token → **无损**。
+- 头像那个聊天记录已用 `supabase` client 直连读 conversations/messages（`fetchProjectMessages`，按 `project_id` 过滤）→ 说明前端直连可行、RLS 放行 → **拾光换源 = 纯前端、不动后端、不重启**。
+- VPS 独有的只是底层痕迹（系统消息/工具调用/按重启切碎的会话段），非聊天正文，弃之无损。
+
+**做什么（全在 `cheng-memory/src/ChatViewer.jsx`）**：把 3 处 `cvFetch` 换成 supabase 直查——① `/cc/sessions` 列表 → `conversations`(按 project_id, order updated_at desc)；② `/cc/session-messages/{id}` → `messages`(eq conversation_id, order created_at)，沿用现有 role/thinking/`---bubble---` 映射；③ `/cc/sessions/search` → `messages` ilike content 统计每对话命中数。UI/收藏/改名(localStorage)逻辑不动。
+
+**收藏/改名**：键从旧 VPS session id 变成对话 UUID。用户定：旧标记（就几个）**不迁移、重置即可**；只要换源后收藏/改名**功能照常可用**。
+
+**实际改动**：ChatViewer.jsx 加 `import { supabase }` + `CV_PROJECT_ID` 常量；3 处 `cvFetch` 换成 supabase 直查（列表/取消息/搜索），消息查询加 `.in("role",["user","assistant"])` 排除 221 条 system 噪音（messages 表 role = user 3001 / assistant 1477 / system 221）；侧栏标签「VPS」→「对话」。**收藏/改名/排序/搜索/查看全部保留**，只换数据源。映射代码(role→sender、thinking 块、`---bubble---` 拆分)原样复用（取消息查询返回 `{messages:rows}` 喂给旧 loop）。`cvFetch`/`CV_API` 定义留着没删（已无调用、无害）。
+
+**状态**：✅已完成。已 `npm run build` 上线、无 VPS 调用残留、纯前端不重启后端。cheng-memory `split-chat-web` 分支**尚未 commit**（与终端删除一起提交）。回滚=git 还原 ChatViewer.jsx。grep：`CV_PROJECT_ID`、`supabase.from("conversations")`、`vpsSessions`。
+
+---
+
+## 2026-06-02 · [前端] 删除聊天「终端」入口 — chat 包瘦身 42%（677KB→390KB，砍掉 xterm）
+
+**为什么**：聊天设置侧栏的「终端」是半成品（界面标着"xterm.js 待接入"）、目前没用，但 `TerminalPanel.jsx` import 了 `xterm`+`xterm-addon-fit`（重库，node_modules 里 2.6M），白白打进 chat 包。删掉入口 → 整个 xterm 被 tree-shake 出去。
+
+**做了什么（全在 `cheng-memory/src/ChatPanel.jsx`）**：删 7 处——`import TerminalPanel`、`terminalOpen` state、`{terminalOpen && <TerminalPanel/>}` 渲染、传给 SidebarScreens 的 `onOpenTerminal` prop、侧栏 `<SidebarItem>终端</SidebarItem>`、SidebarScreens 签名里的 `onOpenTerminal` 形参、以及死代码 `TerminalPlaceholder`（没人用的内联占位组件）。确认过：`TerminalPanel` 只有 ChatPanel 在 import、xterm 只此一处。**`TerminalPanel.jsx` 文件保留未删**（已无 import→不进包；想恢复终端时还在）。nginx `/terminal` 反代未碰（只是没人连）。
+
+**结果**：chat 包 `677,959→390,490 字节`（-42%，gzip `167KB→98.6KB`），跌破 500KB → 长期的"chunk 过大"构建警告消失。已 `npm run build` 上线、无残留引用。git：cheng-memory `split-chat-web` 分支**尚未 commit**（拟与后续"聊天记录入口清理 + 拾光换源"一起提交）。grep：`TerminalPlaceholder`、`onOpenTerminal`、`xterm`。
+
+---
+
+## 2026-06-02 · [前端] 新增「流年」记忆热图日历（记忆系统进阶·纯可视化，cheng app 借鉴 CcCompanion 第①项）
+
+**为什么**：主壳 B（cheng-memory）要做"记忆系统进阶"。与用户敲定：记忆库（`memories_cheng`）只存澄自己写的记忆，**纯可视化、不建表、不写后端**——把已有记忆按时间换成日历热图展示。砍掉了 CcCompanion 的"写作提示/日记 tab"（那是给人写日记用的，cheng 记忆只澄写）。
+
+**做了什么（全在 `cheng-memory/src/MemoryManager.jsx`）**：
+- 新增组件 `MemoGraphPanel`（面板名「流年」，key `memograph`，加进 `TABS`）：一张日历，每天一个格子。
+  - **颜色 = 当天澄记忆的"情绪四象限"**：用记忆的 `valence`(开心↔伤心) × `arousal`(激烈↔平静) 两列**取当天平均**，落到四象限之一。这是心理学情绪环形模型。阈值 `VAL_MID`/`ARO_MID`=0.5（数据 0~1），定义为常量好调。四象限**最终命名+配色**（`MOOD_QUADRANTS`，用户定）：雀跃=激烈的开心=雾粉`#E0B6C6`(降过饱和与其它同档) / 恬然=平静的开心=柔绿`#C9D7A7` / 怅然=平静的伤心=黛蓝`#9DB4CE` / 郁结=激烈的伤心=灰`#969A9E`。图例顺序：雀跃 恬然 / 怅然 郁结（上排开心、下排伤心）。
+  - **深浅 = 当天记忆条数**（相对当月最多那天，alpha 0.30~1.0）。
+  - 还有：**连续打卡**（current/longest，全历史连续天数）、**那年今日**（一周/一月/一年前同日的记忆，三档纵向叠、有数据才显示；**每条可点 → `jumpTo` 把日历翻到那天+展开当天详情+滚回顶部**）、点某天列出当天记忆、**心情象限图例**。
+  - 数据：前端直连 Supabase REST 读 `memories_cheng`（`select` 显式列、避开 embedding），**只读、不落库、永远和记忆库实时同步**。
+- 入口：`MemoryPanel`（涟漪）头部"共 X 条"那行右侧加「流年」按钮 → 跳 `memograph`；返回键回记忆面板（非首页，因从那进）。改 `MemoryPanel({ onNavigate })`、面板渲染数组 `<Comp onNavigate={setTab}/>`。**没动 HomePanel**（首页卡片不变，按用户要求只从记忆面板进）。
+
+**已知/数据现状**：用户记忆 `valence` 普遍偏高（0.45~0.95，均 0.78，澄基本都挺开心）→ 多数日子落"开心"半边，"伤心"两格当前几乎不出现（**真实反映非 bug**，等澄写难过记忆才显示）；变化主要在激烈↔平静和深浅。当前数据 54 条 / 14 天 / 跨 5/03~6/01，默认看当月(6月)只有 6/01，翻回 5 月看主体。
+
+**生效**：已 `npm run build`，刷新即见，**无需重启后端**（纯前端、纯读）。git：cheng-memory 工作区改动**尚未 commit/push**（等用户看过效果）。回滚：删 `MemoGraphPanel` + 4 处接线（TABS/MemoryPanel签名+按钮/渲染数组）重 build。grep：`MemoGraphPanel`、`流年`、`MOOD_QUADRANTS`。
+
+---
+
 ## 2026-06-02 · [基建] 补推 git 备份 — 在跑的后端代码此前只存在于 VPS，GitHub 上没有
 
 **为什么**：用户问"换 VPS 时靠 git 能不能完整恢复"。排查发现三处缺口：①正在跑的后端代码在子模块 `server/`（独立仓库 `memory-backend`）的本地分支 `tmux-migration`（commit `1037c40`）上，**远程只有 main、这条分支根本没 push** → 在跑的代码 GitHub 一份都没有，VPS 一挂就丢 tmux 迁移那条线。②父仓库 `memory-home` 的 `main` 本地 ahead 5（含子模块指针提交）。③`.env` 和 nginx 不在任何 git 里。
