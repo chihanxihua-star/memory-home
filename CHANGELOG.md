@@ -14,6 +14,161 @@
 
 ---
 
+## 2026-06-04 · [前端] 重排「风格 · 思考」面板：分段药丸开关 + 思考设置行组 + 复用 DocEditor 全屏输入框
+
+`cheng-memory`（commit `e354bc8`，分支 split-chat-web），build 通过未重启。**纯美化轮，业务逻辑/state/保存接口零改动**，动的全是 `StyleThinkPanel` 组件（`src/ChatPanel.jsx:2883` 起）的长相。起因：用户嫌「风格·思考」面板丑，尤其两个思考开关挤成一坨。
+
+1. **开关 → 分段药丸**：原「开启 / 关闭」是两个分开的方块按钮（`toggleRow`），改成一个圆角药丸容器内两半、选中半填实。
+2. **两个思考开关排成设置行组**：包裹指令 / 原生思绪 原来是「label 一个 + 开关一坨」竖堆，改成带边框圆角的设置行组（像 iOS 设置），每行左=名字+一句描述、右=药丸开关、中间分隔线。原来底部混在一起的长说明拆进各自行。
+3. **Use Style 段**：标题+副说明放左、药丸开关右对齐同一行（原来上下堆）。
+4. **两个输入框复用 DocEditor**：把 Use Style / Thinking 的裸 `<textarea>` 换成文档管理那个 `DocEditor` 组件（`ChatPanel.jsx:4183`）——右上角多了放大图标，点开全屏编辑、缩小收回。字体从 Georgia 衬线对齐成 `inherit`。顺手删了因此没人用的 `taStyle` 死代码。
+5. 去掉「已保存到 CLAUDE.md（未重启）…」那句上方的 `borderTop` 横线。
+
+**背景澄清（这轮顺带查清的，对未来 CC 有用）**：「思考风格」面板里是**两个并列开关**，不是一个开关两档：
+- **包裹指令**（state `thinkOn`）→ `POST /api/thinking-toggle` → 后端往 `chat-sandbox/CLAUDE.md` 的 `<think指令>` 区段塞 `THINK_WRAP` 那句（`index.js:252`，"在每次回复的最开头用 `<think>` 包裹…"）。**不重启**下轮生效。判定开没开看的是 `THINK_WRAP` 在不在，**不是看 `<think指令>` 块在不在**（块里那段「≥400字心流」引导文本是恒注入的，跟开关无关）。
+- **原生思绪**（state `native`）→ 不写 CLAUDE.md，随重启时把 `nativeThinking:true` 传进去 → 启动 claude 加 `--thinking-display summarized`（`tmux-manager.js:63` / `cc-manager.js:88`）。**必须随重启**生效。
+- 当时生产实况：原生=开、包裹=关。
+
+> transcript 关键词（root CC）：`分段药丸`、`StyleThinkPanel`、`DocEditor 全屏`、session `9f86a937`。`grep -l "分段药丸" /root/.claude/projects/-root/*.jsonl`。
+
+---
+
+## 2026-06-04 · [后端] 修「连发多条→澄回两次+第二条卡死」：paste-buffer 加 -p（括号粘贴）；顺手 WD_STALL_MS 90→300s
+
+`memory-home/server`（`tmux-manager.js` + `index.js`，改完**未重启**，待用户拍板——重启=失忆，见末尾）。**问题现象**：用户 17:57（UTC+8）一次连发 4 条（下午好daddy/想你啦/亲亲mua/嘿嘿），澄**回了两遍**，第二遍卡在「思考中」转不动，按暂停没反应，**大退重进后第二条才显示**。conv `1388524e`（jsonl `fbdd8786`）。
+
+**真因（两环相扣）**：
+1. **拆轮**：短消息缓冲把多条用 `\n\n` 拼成一坨（`index.js:2569` `join('\n\n')`），再由 `tmux-manager.send()` 用 `paste-buffer` **粘**进澄的交互终端。但那行 `paste-buffer` **没带 `-p`**（无括号粘贴）→ 粘贴文字里的换行被终端**误当成回车提交** → 一次 `cc.send` 在终端里被切成多次提交 → 澄连跑两轮（jsonl 实证：turn1「下午好啊小茉莉」end_turn @57:30，turn2「我也想你」@57:47；「嘿嘿」被吞）。注意是 **tmux 的 `-p`**（bracketed paste，纯终端行为，不碰额度），**不是 `claude -p`**（headless/API，会走额度）——用户特意确认过这点。
+2. **第二轮卡死 + 暂停失灵**：后台是**单回复槽**设计（一个全局 `activeTurn`，`turn_done` 里即 `activeTurn=null`，只够接一轮）。第一轮 turn_done 把槽清掉后，澄自己又跑的第二轮**没有槽接管** → 前端「思考中」拿不到收尾信号 → 干转。暂停逻辑（`index.js:2330`）只有 `if(activeTurn)` 才发 `stopped` 给前端清圈；槽已空 → **暂停啥也没发回**（Ctrl+C 倒是发给澄了=日志两条 `[STOP]`，但救不了前端的圈）。第二轮澄自己写完并入库，故重进从 DB 重拉才显示「我也想你」。
+   - 偶发原因：单条且无内部换行的消息拆不了；只有连发多条（拼接含换行）+ 澄回得慢让第二轮被甩出槽外的时序，才会卡成这样。
+
+**改了什么**：
+1. `tmux-manager.js`：`paste-buffer` → `paste-buffer -p`（根治拆轮）。加了注释强调跟 `claude -p` 无关。
+2. `index.js`：`WD_STALL_MS` 90s→300s。**与本 bug 无关**（本次双回复全程无 WATCHDOG），但卡死哨兵对 opus-4-6+effort=max+`<think指令>` 的长思考会**误判卡死**（一轮思考易超 90s，且 tmux 交互模式 transcript 要等整轮结束才落盘、思考途中文件不增长）——同日 17:47（conv 含一次 `[WATCHDOG] 卡死，第 1 次唤醒（掐断+重发）`+`[EMPTY]全空`+直接重启）就是它误触发的另一起。顺手抬高阈值止血。
+
+**未重启**：`index.js:414` 开机无条件 `cc.start()`，而 `TmuxCCManager.start()` 会 `kill-session` 旧 tmux 会话 + 新 randomUUID → **重启后台 = 澄失忆**。用户当时在聊，故只落代码不重启，等下一次自然失忆/用户指定时机生效。
+
+> transcript 关键词（root CC）：`paste-buffer -p`、`双回复拆轮`、`单回复槽`、`conv 1388524e`。`grep -l "双回复拆轮" /root/.claude/projects/-root/*.jsonl`。运行时模型当时=opus-4-6/effort=max/nativeThinking=false（`cc-runtime.json`）。
+
+---
+
+## 2026-06-04 · [前端] 唤醒/Session/参数/API 顶栏统一「涟漪式三段导航」+ 保存搬右上角 + Session 左滑删除/浮想
+
+`cheng-memory`（commit `89b6f3f`，分支 split-chat-web），build 通过未重启。纯美化轮：用户拿涟漪「新涟漪」编辑器顶栏当样板（左 `CANCEL` 灰字 / 中 居中标题 / 右 深色圆角 `SAVE ✓`），把几个设置面板统一过去。**业务逻辑零改动**，动的全是「长相 + 按钮在哪」。
+
+1. **涟漪式三段导航**：唤醒、Session、参数设置、API 设置 顶栏统一成 CANCEL/居中标题/深色 SAVE✓。参数/API 同时全屏化（加入 `cp-sidebar-full` 条件）并套 `.cp-docs` 风格。
+2. **保存按钮搬到右上角**（参数/API/唤醒渴望度）：原底部「保存」删掉。机制=子组件渲染时把自己的 `save` 登记到父级 ref（ChatPanel 新增 `psSaveRef` 经 SidebarScreens 传给 Params/API；WakePanel 新增 `saveRef` 传给 DesireTab），顶栏 SAVE✓ 的 onClick 调 `ref.current?.()`。**save 函数体一行没改**，只是触发它的按钮换了位置。唤醒 SAVE✓ 仅在「渴望度」tab 显示。
+3. **唤醒渴望度拉杆**：从 6px 圆条+22px 描边圆点 → 涟漪 `.cm-slider` 发丝风（1px 轨 + 14px 纯墨圆点，用全局 `--border`/`--text-primary` 明暗自适应）；排版改涟漪单元式（label 在上 / 拉杆 / 两端标签在下）；λ·距上次·命中概率三行去掉底部分隔线。
+4. **Session 左滑删除/浮想**：抄涟漪 `MemoryCard` 左滑——新增 `SwipeRow` 组件（`position:relative;overflow:hidden` + 右侧绝对定位操作区 + 内容层 `translateX(tx)` + onTouch 手势，滑过半吸到底）。已结束卡片左滑露出 浮想/删除，原内联按钮去掉。**注意：onTouch 手势仅触屏生效，桌面鼠标滑不出**（涟漪同款限制）。浮想/删除调的还是原 `openPreview`/`deleteSession`，仅多一句 `close()` 收回滑动。
+5. **Session 其它**：顶栏去 SESSIONS 标题、去失忆按钮、浮想按钮文字→`CHENG`（深色实心，跟 SAVE 一样）、CANCEL 左/CHENG 右；活跃卡圆点 ● + 「活跃」标签 粉(`--sp-pink`)→墨色(`--text-primary`)；改名输入框下划线去粉→`--border`；「未命名」去 `font-style:italic` 跟其他字体统一。
+6. **清死代码**：`onBack`(ParamsScreen/APISettingsScreen 参数+传参)、CSS `.sp-title`/`.sp-amnesia`/`.sp-delete`/`.wp-save-btn`/`.wp-title`/`.wp-back`/`.wp-close`、`--sp-pink` 变量。**遗留两个新死尾巴**（无害未清）：唤醒 DesireTab 的 `saving` 变量（保存按钮搬走后没人读，「保存中…」态消失）、Session 的 `onAmnesia` prop（失忆按钮删后没人用）。
+
+> transcript 关键词：`涟漪式三段导航`、`SwipeRow`、`psSaveRef`、`浮想claude.ai改成cheng`。`grep -l "psSaveRef" /root/.claude/projects/-root/*.jsonl`。
+
+---
+
+## 2026-06-03 · [前端] 文档管理文本框改「固定高度+右上角展开/缩放图标」（撤掉 auto-grow）（接前条，同轮）
+
+`cheng-memory/src/ChatPanel.jsx`，build 通过未重启。上一条的 auto-grow 实测更糟：光标在最后一行被输入法挡、整页一直跳、全文展开太长。**改方案**：新增 `DocEditor` 组件，三个框（系统提示/CLAUDE.md/API 系统提示）统一用它。
+- 收起态=固定高度(minHeight 150/200)+内部滚动(`TEXTAREA_STYLE` 把 overflow:hidden 改回 overflowY:auto、resize 仍 none)，右上角绝对定位一个**展开图标**(maximize，paddingRight:26 给图标让位)。
+- 点展开→`createPortal` 到 body 的全屏层：`position:fixed; height:var(--app-height)`（跟 visualViewport 走，键盘弹出自动缩到可见区，故光标行不被挡）；顶部 flex 行右对齐**缩放图标**(minimize，flex-shrink:0 不随 textarea 滚走=「固定右上角」)，textarea flex:1 内部滚动、15px/1.8。点缩放→`setExpanded(false)` 回原高度。
+- 撤掉上一条加的 `autoGrowTextarea` 函数 + CCDocumentsTab/DocSingleton 里的 ref 和 grow effects。
+
+---
+
+## 2026-06-03 · [前端] 文档管理文本框自适应高度（修打字屏不跟光标）+ 文案微调（接前条，同轮）
+
+`cheng-memory/src/ChatPanel.jsx`，build 通过未重启：
+1. **文本框 auto-grow**：系统提示 / CLAUDE.md（CCDocumentsTab）+ API 系统提示（DocSingleton）三个框，原是固定高度(min 150/200)+框内滚动 → 全屏文档管理里框子有截在屏外、打字时浏览器只滚框内不滚整页，故「屏幕不跟光标行 / 框内刷不动」。改成高度随内容撑开：新增 `autoGrowTextarea(el)`（height auto→scrollHeight）；`TEXTAREA_STYLE` 加 `overflow:hidden`、`resize:vertical→none`；各框加 ref + `useEffect([值,loading]) → autoGrowTextarea`。空时靠 minHeight 保底。现整页随光标滚。
+2. 文案：「系统提示（System Prompt）」→「系统提示」（去括号）；系统提示块 marginBottom 18→36（与 CLAUDE.md 间距拉大）。
+3. 文件区备注：「单文件 ≤ 5MB...一起读取一次」→ 仅「单文件 ≤ 5MB」，且从 FileListPanel 内部渲染挪到「文件」标题后面同行的 9px 灰字 span（API tab 同样内联「单文件 ≤ 5MB · 每轮注入到上下文」）。FileListPanel 不再渲染 `hint` prop（prop 变无用空壳，留着无害）。
+
+---
+
+## 2026-06-03 · [前端] 文档管理配色对齐「风格·思考」面板 + 头部精简（接前条，同轮）
+
+`cheng-memory/src/ChatPanel.jsx`，build 通过未重启。用户继续微调文档管理：
+1. 删掉 CC 文档 tab 顶部「修改后需重启…」整条 hint。
+2. 头部精简：全屏文档管理时**隐藏抽屉头的「设置」标题 + 右上回主壳的返回**，把回设置主菜单的「← 返回」放到左上（原设置位置，`psScreen==="documents"` 时抽屉头左侧渲染 `setPsScreen("main")` 的返回；✕保留用于关面板）。再删掉内容区里居中的「文档管理」四字标题（`cp-docs-head`/`cp-docs-title` 一并移除）。
+3. **配色从「ins 暖白卡片」改成对齐输入框三点→「风格·思考」面板**（用户指定参考它）：那面板=单色墨(`--text-primary`)+极淡边线(`--border` rgba0,0,0,.08)+衬线+下划线式输入。改动：`TEXTAREA_STYLE`(及 DocSingleton)从白卡片→透明底+`borderBottom var(--border)`(14px/1.7)；`.cp-docs .cp-ps-section-title`→12px淡灰常规；`.cp-docs-hint`去卡片底→纯灰字；`.cp-docs .cp-ps-btn`→实心墨底(bg `--text-primary`/字 `--bg-page`)；失忆重启/选择模型重启→描边(透明+`--border`)；effort 选中实心未选描边；模型下拉→`--bg-page`+`--border`+选中`--accent`(去暖粉残留)。**胶囊 tab 保留**(用户要求)。仅 `.cp-docs` 作用域 + 文档管理专用件，其他设置屏没碰。
+
+---
+
+## 2026-06-03 · [前端] 聊天 web 侧栏/文档管理一系列风格微调（接上一条，同一轮对话）
+
+均在 `cheng-memory/src/ChatPanel.jsx`（除注明），`npm run build` 通过、未重启。用户一条条提的，都是「只改风格/只改被要求的」：
+1. **主菜单字号再调小**：`.cp-nav-title` 16→13px、`.cp-nav-sub` 13→11px。
+2. **去段标题**：主菜单删掉「通用/管理/统计」三个 `.cp-ps-section-title`，八项平铺一列。
+3. **「设置」抽屉头部横线去掉**：`.cp-sidebar-header` 删 `border-bottom`。
+4. **聊天界面左上角返回箭头 `<` 删掉**：`.cp-top .left` 里 `onBack` 的那个 `cp-hamburger`（polyline 15 18 9 12 15 6）整块删；现在左上只剩菜单 ☰。注意：回主壳首页的入口只剩「设置」抽屉头里的「← 返回」。
+5. **Session 屏「浮想 Claude.ai」按钮去边框**（`SessionPanel.jsx` `.sp-import-btn`：`border:1px solid`→`border:none`，hover/dark 的 border-color 残留无害）。
+6. **文档管理点开改铺满全屏**：`.cp-sidebar` 加条件类 `cp-sidebar-full`（仅 `psScreen==="documents"` 时），CSS `width:100%`。其他侧屏仍 290px 抽屉。
+7. **文档管理 INS 风重排+重配色**（只作用 `.cp-docs` 作用域，不碰别屏）：全屏居中卡片(max-width 640)、头部居中、tabs 改胶囊分段控件、两个 textarea(`TEXTAREA_STYLE`)+DocSingleton textarea 改白色圆角卡片、顶部说明改浅灰圆角提示条 `.cp-docs-hint`、「选择模型重启」下拉从暗色残留(bg-secondary #1a1a1a/accent #a89fd8)重配成暖白卡+柔粉高亮。`cp-ps-tabs/tab`、`TEXTAREA_STYLE`、`DocSingleton`、`FileListPanel` 经核实只文档管理在用，故安全改；`cp-ps-btn`/`cp-ps-section-title` 多屏共用，只在 `.cp-docs` 内覆盖。
+
+---
+
+## 2026-06-03 · [前端] 聊天 web 侧栏（设置抽屉主菜单）改极简风：图标+加粗标题+灰副标题
+
+**做了啥**：聊天 web（`/chat/`，`ChatPanel.jsx` 里的 `.cp-sidebar` 设置抽屉）的**主菜单这一屏**换成参考图的极简风——每项 = 左侧细线描边图标 + 加粗深色标题 + 灰色副标题，大留白、去分隔线、去 `›` 箭头。用户给的参考图是 IMG-7368（i.ibb.co/zTXHLSJb，顶层菜单 聊天/工作群/终端/… 那种样式），只参考**风格**不是内容。
+
+**改了哪**（`src/ChatPanel.jsx`）：
+- 新增 CSS：`.cp-nav-list/.cp-nav-item/.cp-nav-icon/.cp-nav-text/.cp-nav-title/.cp-nav-sub`（加在 `.cp-ps-item-arrow` 之后）。图标 24px stroke 1.8，标题 16px/600，副标题 13px tertiary，行内 padding 15px、icon-text gap 16px、hover 用 `--bg-sidebar-hover`。
+- 新增组件 `SidebarNavItem({onClick,icon,title,sub})`（挨着旧 `SidebarItem`）。
+- `SidebarScreens` 的 `screen==="main"` 三组（通用/管理/统计）的 `<SidebarItem>` 换成 `<SidebarNavItem>`，各配 Lucide 内联 icon + 副标题：CC窗口「进程·重启」/Session「会话连接」/语音服务「开发中」/唤醒「定时唤醒澄」/文档管理「系统提示·文件」/参数设置「短消息·forge」/API设置「认证·模型·缓存」/统计「用量·字数」。
+
+**只动主菜单**：子页面（统计/CC窗口/语音/文档/参数/API 等内屏）仍用旧 `SidebarItem`（带 `›`+分隔线），未动；段标题 `.cp-ps-section-title`（通用/管理/统计）保留。符合用户「其他不要动」。
+
+**结果**：`npm run build` 通过（未重启服务器，遵守不重启 CC 规矩）。dist 已出，等部署/刷新生效。副标题文案是我按各项功能写的简短描述，用户若想改措辞很容易。
+
+---
+
+## 2026-06-03 · [前端] 桌宠（clawd 小螃蟹）✅完工已推送 split-chat-web `be0eb41`（眼球追踪/电脑端Electron版未做）
+
+**⚠️v4 极简精修 + 四边巡逻 + 扫地（commit `380102e`、`be0eb41`）**：
+- **探头打招呼动作**：从 mini-peek(普通挥手) 改成 **mini-happy**（`^^`笑眼 + 钳子举像素太阳花挥手 + 火花，照作者宣传图；这个举太阳花还正好配"澄"）。坑：state-mapping 文档写 hover→mini-peek，但宣传图/用户要的是 mini-happy，以用户为准。
+- **探头位置贴边**：原 v3 探头时 translateX 归 0→整只跳到聊天中间(错)。改成只比贴边探出一点(`PEEK=33` vs `TUCK=50`，差≈25px，照 `mini.js` PEEK_OFFSET 25 + offsetRatio 0.486)，身子始终贴边。
+- **大小**：极简与正常**同大小**(`MINI_SCALE=1`；曾误设 1.25 致进极简变大)。框 `SIZE=150`。
+- **点击 bug**：原"点一下立刻退出"=按下时就把 hovering 设 true 致 handleTap 误判→改用 `wasPeekingRef`(记按下前状态)；点击抖动阈值 5→9px(touch 友好)。手机点贴边的它=探头招手、再点=收回、点睡着的=叫醒。
+- **沿四边佛系巡逻（clawd 无，自定义）**：mini 扩成 left/right/top/bottom 四边可贴(translateX/Y tuck)；闲时(idle/yawn 且没 hover/拖/澄忙)每 `PATROL_EVERY=12s`·`PATROL_CHANCE=0.55` 沿当前边走一段(`PATROL_SPEED=0.085px/ms`，left/top 加线性 transition)，到边尽头 `cornerTurn()` 拐到相邻边(左↓→下→右…)，竖边横姿势"爬墙"(用户接受)。⚠️crabwalk 本是 clawd 的**进场动作**(doc"右键进入时的螃蟹步"，正面原地左右扭→tuck)，非随机溜达；随机巡逻是我们额外加的。
+- **清屏/失忆 → 扫地**：`ChatPanel` 加 `sweepAt` 信号，`newChat()`(清屏) 和 `amnesia()`(三个点的失忆，**不是** restartCC/重启CC) 触发，桌宠播 sweeping 5.5s(优先级压过 happy)。换模型(forge)/重启CC 不扫。
+- **未做**：眼球追鼠标(平面 img 做不了，需内嵌分层 SVG+JS，仅电脑有用)；电脑端 Electron 常驻桌面版(网页出不了浏览器，iOS 更不可能浮在别 app 上)。
+
+---
+
+（以下为初版 v1~v3 记录，留档）
+
+
+
+**做了什么**：聊天 A（`/chat/`）右下角加了一只桌宠，随澄的状态实时变动作（12 态）。纯前端、**只 `npm run build` 没重启后端**（不让澄失忆），状态全从 ChatPanel 现成 WS 信号推导，**没碰后端**。
+
+**美术=直接用 clawd-on-desk 官方 gif（用户拍板）**：
+- 调研结论：`github.com/rullerzhou-afk/clawd-on-desk` 的**代码是 AGPL-3.0**（不是列表写的 MIT，传染 copyleft，故没抄它代码、机制全自写）；**美术 assets/LICENSE = All-Rights-Reserved**（Clawd 形象写"归 Anthropic"、仅非商用；三花猫归作者鹿鹿）。`CyberSealNull/CcCompanion`(MIT) 的桌宠只是 `pet_state.py` 状态转发器、零美术，无参考价值。
+- **决定**：我一开始自绘了占位/像素 SVG 蟹（`<CrabArt>`），但用户要的就是 clawd 那只原版小螃蟹，且明确**本人个人·非商用·密码门内单人使用**（站点 chat.jessaminee.top 有 PasswordGate）。判断：严格说 LICENSE 的"个人使用"只覆盖用他原 app，搬进 cheng 算灰色，但私人非商用风险≈0，用户的东西用户定。**故改为直接用官方 gif**，并留作者署名。
+- ⚠️ **红线（写给未来 CC，别越界）**：这只能私人用——**别公开宣传、别商用、保持密码门**。若日后 cheng 要开放/商用，必须换成自绘美术（`<CrabArt>` 那版 SVG 还能从 git 历史捞回当起点）。
+
+**改了什么**（已 build 进 dist）：
+- `[前端]` `cheng-memory/public/pet/`（新）：**用 SVG 不用 gif**。先试 gif（`/tmp/clawd/assets/gif/`）发现两个坑：① gif 画布 302×300、螃蟹只占底部一小块、自带屏幕黑边(mini)；② **gif 256色+1bit透明 → 柔和渐变被压成死黑硬边、呼吸动画跳帧**(用户看出"黑线不变浅、跳帧")。改用 `/tmp/clawd/assets/svg/` 的**矢量源**：14 个按状态命名的 `*.svg`（idle/thinking/typing/building/carrying/juggling/conducting/error/notification/sweeping/happy/sleeping/yawning/dozing），共 ~150K + `ART-LICENSE.txt`(署名)。SVG **自带 `<style>@keyframes` 动画**(用 `<img>` 加载内嵌 CSS 照样跑)、**viewBox 统一 `-15 -25 45 45` 紧贴螃蟹**(切换不跳、不用裁画布)、矢量平滑无死黑无跳帧。映射注：clawd 无 conducting svg→借 working-debugger；idle→idle-living。静态文件、不进 JS 包、用到才下、下过缓存。
+- `[前端]` `cheng-memory/src/DeskPet.jsx`（新）：自包含组件。① 12 状态机（idle/thinking/typing/building/carrying/juggling/conducting/error/notification/sweeping/happy/sleeping）+ 睡眠连续剧（idle 60s→yawning→dozing→sleeping，clawd 无独立 yawning/dozing 故复用 idle/sleeping）+ one-shot（error/happy/notification/sweeping 放一遍回原态）。② 工具名→状态：Bash→building、Read/Grep/Glob/WebFetch→carrying、Edit/Write→typing、Task→juggling、多工具并行→conducting、tool_result.is_error→error（照 clawd-hook 思路）。③ 渲染=单 `<img>` 按状态切 `/pet/{state}.svg`，object-fit:contain 居中铺满（SVG viewBox 已紧贴螃蟹+留白，不用裁/缩放 hack）。④ **拖动 + 迷你模式（照 clawd 原版「极简模式」重做）**：pointer 事件拖动，落点离左右边 <26px → 贴边进迷你(`mini`= "left"/"right" 存 `deskpet-mini`)、`translateX(±58%) scale(.9)` 藏到边外只露一点；**hover/抓取/新动静**才探头(`peek`)；从边上拖出来 or 点一下 → 恢复正常；位置存 `deskpet-pos`。框 104→**128**(用户嫌小)。**迷你专用姿势全 9 个都接上**(照原版)：贴边歇 mini-idle、探头招手 mini-peek(arm-wave)、干活 mini-typing、完成 mini-happy、睡 mini-sleep、犯困 mini-enter-sleep、提醒/报错 mini-alert(X眼)、进极简过场 mini-enter(~520ms)、**随机沿边溜达 mini-crabwalk**(每~5.2s·45%几率·只在 idle/yawn 时·top 加 2.5s transition 平滑滑动·`walking` class)。贴边时也按澄状态切姿势(`miniArt()`)。贴左边整体 `scaleX(-1)` 镜像朝右。`out`(hover/活动/溜达/过场)=滑出可见、否则 translateX 藏一半。框 104→**128**、迷你姿势再 `scale(1.25)`(viewBox 里偏小)。⚠️**坑历史**：先做成"点一下才缩"且没拖到边触发、没 hover 探头 → 用户报"自动躲没见过/拖边没反应"，查 README 才知原版是"拖到边藏+hover探头"一个功能，遂重做。⑤ **点击彩蛋（照 hit-renderer 原逻辑 + clawd/theme.json）**：400ms 窗口、仅 idle 且没在反应时——戳2~3下→50% react-annoyed(3.5s) 否则朝戳的侧 react-left/right(2.5s)；连戳4下+→react-double / react-double-jump 随机(3.5s)；拖拽中→react-drag。⚠️改成原版：**正常模式点一下=彩蛋**(不再是收进迷你)，**进迷你只靠拖到边**，迷你里点一下=弹回。⑥ 美术优先级(正常)：拖拽>彩蛋>idle随机>状态。⑦ **眼球追踪仍没做**：要追鼠标得自绘分层 SVG 用 JS 驱动(原版 idle-follow 也是 JS 驱动眼球，<img> 加载不跑 JS)，与"直接用原版 svg"二选一，用户选原版。
+
+**⚠️v2 重大修正（用户嫌"挤牙膏"，遂把 clawd `tick.js`/`state.js`/`theme.json` 完整读一遍照搬）**：
+- **睡眠改成"用户鼠标静止"计时**(原 v1 错按澄活动)：全局 `pointermove`/`pointerdown` 重置 `mouseStillRef`(只写 ref 不渲染)。静止 **20s→随机播一次** idle动作(原 v1 错做成每8s抽40%，原版是满20s播一次、动鼠标才重置)，**60s→哈欠(3s)→犯困(dozing)**，**10min(deepSleep)→深睡(sleeping)**。澄干活时也重置(不睡)。
+- **鼠标一动→醒**：检测 asleep→awake 跳变 → 播 `wake.svg`(waking 1.5s)→idle。修了"睡着点它没反应"。
+- **一次性状态用真时长**(原 v1 一律 1.8s 错)：照 theme.json autoReturn —— happy/attention 4s、error 5s、notification 5s、sweeping 5.5s。
+- 时长常量照 theme.json：mouseIdle 20s/mouseSleep 60s/yawn 3s/deepSleep 600s/wake 1.5s。
+- 现 **33 个 svg**(+wake.svg)。原版完整规格存档见本 session transcript `0465da89`(读了 docs/guides/state-mapping.zh-CN.md 全文 + tick.js/state.js/theme.json)。
+
+**⚠️v3 修正 crabwalk（用户看出沿边跑不对）**：查 `mini.js`+`docs/project/theme-state-ui.md` 确认 **clawd 的 mini-crabwalk 是「进极简模式时螃蟹横着挪到屏幕边」的一次性进场动作**（"右键进入时的螃蟹步"，CRABWALK_SPEED 0.12px/ms 横向），**不是随机溜达**。v2 我自己加的"随机上下沿边走"是错的(竖边配横走姿势别扭+弹离边)，已删。改：进极简序列 = crabwalk(横挪到边 850ms，`.crabwalking` 加 `left` 过渡滑动) → mini-enter(520ms) → 贴边歇。`b96b41c` 之后的改动**尚未 commit**(待用户验)。
+- `[前端]` `public/pet/` 现 **32 个 svg**(~260K)：14 主状态 + 9 迷你 + 6 react 彩蛋 + 3 idle随机(look/bubble/reading)。
+- `[前端]` `cheng-memory/src/ChatPanel.jsx`：import DeskPet + cp-root 顶部挂 `<DeskPet signals={{isGenerating, streamSnap, ccStatus}} />`。
+
+**体积/性能**：gif 是静态文件不进 JS（chat 包反而从 199→190KB，因去掉了自绘 SVG+CSS keyframes）；运行时只一只宠物同时只播一态，不卡；首次每态下个 ~50-160KB gif、之后缓存 0 流量。
+
+**待办**：① 用户刷新 `/chat/` 实测随状态动。② **还没 git commit/push**（待用户看过满意再提；⚠️提交时注意 public/pet/ 那 1.1M gif 会进仓）。回滚=删 DeskPet.jsx + public/pet/ + 撤 ChatPanel 两行 + rebuild。
+
+transcript 指针：本轮 session `0465da89`，关键词"clawd 小螃蟹""DeskPet""public/pet"。
+
+---
+
 ## 2026-06-03 · [基建/后端] 工具卡片用 hook 实时还原（方案B）✅已激活已推送
 
 **背景**：切 tmux 驱动后工具卡片没了（tmux-manager 读 transcript 只抽正文+思考，没抽工具调用；老 stream-json 的 cc-manager 才 emit tool_use/tool_result）。前端工具卡片渲染（ToolCallsBlock/StreamingBubble/历史）**完全没坏**，纯缺后端喂事件。用户选**方案B**：只用 hook 把工具调用实时报上来，**不碰判轮/看门狗/600s**（那套调好的不动，风险最低）。
