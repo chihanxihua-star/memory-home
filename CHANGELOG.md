@@ -14,6 +14,18 @@
 
 ---
 
+## 2026-06-06 · [前端] session 面板自动隐藏 20K tokens 以下的历史卡片
+
+`cheng-memory/src/SessionPanel.jsx`。只改 session 面板历史列表过滤，不动后端、不重启。
+
+**需求**：用户想让 session 界面自动筛掉太小的 session 卡片，阈值 20K tokens。
+
+**改了什么**：新增 `MIN_ENDED_SESSION_TOKENS = 20000`，`endedSessions` 只保留 `tokens_total >= 20000` 的 ended session；`tokens_total` 为空的旧数据先保留，避免没法判断时误隐藏。当前 active session 不过滤，避免新会话刚开始低于 20K 时当前卡片消失。
+
+**验证**：`cd /root/cheng-memory && npm run build` 通过，dist 已更新。未改后端，未重启 Node/tmux/CC。
+
+> transcript 关键词：`MIN_ENDED_SESSION_TOKENS`、`自动筛选掉20ktokens的session卡片`。
+
 ## 2026-06-04 · [前端] 重排「风格 · 思考」面板：分段药丸开关 + 思考设置行组 + 复用 DocEditor 全屏输入框
 
 `cheng-memory`（commit `e354bc8`，分支 split-chat-web），build 通过未重启。**纯美化轮，业务逻辑/state/保存接口零改动**，动的全是 `StyleThinkPanel` 组件（`src/ChatPanel.jsx:2883` 起）的长相。起因：用户嫌「风格·思考」面板丑，尤其两个思考开关挤成一坨。
