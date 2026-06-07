@@ -15,6 +15,17 @@
 
 ---
 
+## 2026-06-07 · [后端] world-home 待办 urgency：[TODO:0.8] + 唤醒包轻量提示（改 index.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「待办 urgency 提醒规则（最小版）」(/root/world-home/CHANGELOG.md, 2026-06-07)。
+
+- `index.js`：`[TODO:0.8]` 可选 urgency 解析(钳0-1)；`getTodoHint()` 读 open 待办→唤醒包加 `您的手机有待办`/`…Urgent`/25%概率显示一条 urgent 标题；明确显示后更新 `last_explicit_reminded_at`(同条一天最多一次，东八区)。buildWorldWakePrompt 加 todoHintLine 参数。
+- **重启 cheng-backend 一次**(澄失忆)。验证：解析 0.5/0.9/钳界；有 urgent 时唤醒包出 `您的手机有待办 Urgent`。
+
+> transcript 关键词(root CC)：`getTodoHint`、`[TODO:0.8]`、`last_explicit_reminded_at`。
+
+---
+
 ## 2026-06-07 · [后端] world-home 9.5 步：[TODO] 解析写 phone_todos_cheng（改 index.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「9.5 步：澄世界唤醒里自动写小手机待办」(/root/world-home/CHANGELOG.md, 2026-06-07)。
