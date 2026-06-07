@@ -15,6 +15,21 @@
 
 ---
 
+## 2026-06-07 · [后端][基建] world-home 10A：天气读取+粗描述（world-env.js + AMAP key 移出 memory-backend，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「10A：小世界日期/天气同步现实（weather-fetcher）」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌/weather-fetcher 细节看那条。
+
+**架构要点：memory-backend 不持有高德 key、不请求天气 API**——天气由独立组件 `/root/weather-fetcher` 拉取+清洗(丢弃 city/province/adcode)+写 world_environment_cheng；memory-backend 只读这张干净表。城市名不进唤醒包/Claude 上下文。
+
+- `world-env.js`：从"含 AMAP 请求+WorldEnvDaemon"砍成只剩 `formatWeather`(读表→给澄的粗描述「阴，温度偏低，微风」，不给精确温度/湿度)。
+- `index.js`：triggerWorldWake 读 world_environment_cheng→buildWorldWakePrompt 天气用 formatWeather(回退 character_status.weather)；删掉误加的 WorldEnvDaemon import/构造/start。
+- **`.env` 删掉 AMAP_WEATHER_KEY/WEATHER_ADCODE**(移到 weather-fetcher 自己的 .env)。
+- **重启 cheng-backend 一次**(澄失忆)。验证：唤醒包出「天气：多云，温度偏高，微风」(粗、无城市、无精确数字)；world_time 仍 tick 驱动没动。
+
+> transcript 关键词(root CC)：`world-env.js formatWeather`、`weather-fetcher`、`AMAP key 移出`、`粗天气描述`。
+
+---
+
 ## 2026-06-07 · [后端] world-home 待办 urgency：[TODO:0.8] + 唤醒包轻量提示（改 index.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「待办 urgency 提醒规则（最小版）」(/root/world-home/CHANGELOG.md, 2026-06-07)。
