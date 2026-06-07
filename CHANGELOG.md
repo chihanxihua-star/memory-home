@@ -15,6 +15,19 @@
 
 ---
 
+## 2026-06-07 · [后端] world-home 11A：world-workday 作息/工资/加班（新 world-workday.js + work_profile_cheng，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「11A：工作日作息 + 工资 + 加班（最小版）」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌/验收看那条。
+
+- 新表 work_profile_cheng(澄=产品部实习生/月2500/发薪日15，+小茉莉)。新 `world-workday.js`：isWorkday(weekday) + workdayTick(自动 09:00上班/11:00午休/13:00下午上班/16:00下班判断[75%正常/25%加班]，当日每段一次跨午夜清) + 加班(effects_hint+挂30-120世界分 overtime_end pending) + endOvertime(回家+固定加班费30) + maybePaySalary(现实UTC+8日==15本月没发→+2500防重发)。
+- **全是系统事件**：只更新状态+写 timeline(source=system)，不 engage 澄/不 Bark/不 WORLD_MESSAGE。
+- world-tick daemon 加 onWorkdayTick(事件检测前跑)；跨午夜清作息标记；firePendingWake 拦 overtime_end 走系统结算；路由 POST /api/world/work。前端 DevPanel 8 按钮。
+- **重启 cheng-backend 一次**(澄失忆)。API 全跑通(8步状态/timeline/工资幂等)；周日 isWorkday=false。
+
+> transcript 关键词(root CC)：`world-workday`、`workdayTick`、`overtime_end`、`work_profile_cheng`。
+
+---
+
 ## 2026-06-07 · [后端] <此刻>浮现加 getChengStatusLine：澄聊天里也知道自己的状态（改 surfacing.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「<此刻>浮现补澄自己的状态」(/root/world-home/CHANGELOG.md, 2026-06-07)。
