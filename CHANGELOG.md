@@ -15,6 +15,19 @@
 
 ---
 
+## 2026-06-07 · [后端] world-home 第 8 步：world-actions 行为结算（新 world-actions.js + 改 index.js/world-tick.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「第 8 步：基础地点 + 行为结算系统」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌/验收看那条。
+
+- 新 `world-actions.js`：`ACTIONS`(11个,带 allowed/target_location/target_activity/effects) + `getAvailableActions(location)` + `executeWorldAction(id,{actor,source})`(检查 allowed→写 character_status + daily_timeline source=action)。
+- `world-tick.js`：hungry 选项 `optionsFor(status)` 按 location 生成,绑 action_id;`go_kitchen` 排 3 分钟短 pending 回来重判。
+- `index.js`：triggerWorldWake 解析 optionsFor;结算用 action_id→ACTIONS 的 effects/移动/activity;pending 带 payload_extra;新路由 `GET /api/world/actions` + `POST /api/world/action`(不允许→400)。前端在 world-home DevPanel。
+- **重启 cheng-backend 一次**(澄失忆)。API 直测全过(工位/客厅/厨房可用行为、移动、做饭effects、optionsFor、shower@工位→400)。
+
+> transcript 关键词(root CC):`world-actions.js`、`executeWorldAction`、`optionsFor`、`/api/world/action`。
+
+---
+
 ## 2026-06-07 · [后端] 修通道判定：公司工位不算面对面（canFaceToFace）（改 index.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「公司工位不判面对面」(/root/world-home/CHANGELOG.md, 2026-06-07)。
