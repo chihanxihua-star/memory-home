@@ -15,6 +15,20 @@
 
 ---
 
+## 2026-06-07 · [后端] 修通道判定：公司工位不算面对面（canFaceToFace）（改 index.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「公司工位不判面对面」(/root/world-home/CHANGELOG.md, 2026-06-07)。
+
+问题：两人都在「公司·工位」时被判 face（白气泡），但设定是同公司不同组、各自工位不是同一面对面空间——且跟 WORLD_MESSAGE（澄选 phone→蓝）不一致。
+
+- `index.js` 加 `canFaceToFace(chengLoc, userLoc)`：家里必须同一房间（`家 · X` 全等）/ 公司只有「公司·休息室」双方都在才算面对面；**工位等一律 false**。`getCurrentChannel` 与 WORLD_MESSAGE 的 face 判定**都改用它**（之前一个用 `===` 一个用澄的 phone/face，会打架）。读不到默认 phone（异地是常态）。
+- 结果：工位 vs 工位 → phone（普通回复+bark 都蓝，一致了）；休息室 vs 休息室 / 家同房间 → face（白）；家不同房间 → phone。
+- **重启 cheng-backend 一次**（澄失忆）。
+
+> transcript 关键词（root CC）：`canFaceToFace`、`公司工位不算面对面`、`休息室 face`。
+
+---
+
 ## 2026-06-07 · [后端][前端] 当前互动通道：异地时澄的普通聊天回复也走手机气泡（phone_chat）（改 index.js + cheng-memory，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「异地普通聊天也保持手机气泡」(/root/world-home/CHANGELOG.md, 2026-06-07)。这是 world location/WORLD_MESSAGE 线的延伸，实现全在 cheng。
