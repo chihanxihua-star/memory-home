@@ -9,8 +9,189 @@
 > - 每条必须**自包含**：哪怕 root 聊天记录被压缩/删了，光看条目也能懂"问题→真因→改了什么→结果"。
 > - transcript 指针只是**深挖细节**用的兜底，不是主记录。关键词要选独特的（会话 id、独特中文短句），方便 `grep`。
 > - 标签：`[前端]` cheng-memory / `[后端]` memory-home 代码 / `[基建]` 进程·nginx·forge·迁移。
+> - **跨仓改动要双向点名**：如果这条改动同时记在另一个仓的 CHANGELOG（如 world-home 改了功能、后端逻辑落在这），本条开头加一行 `🔗 对应：<对面仓>「<对面那条标题>」(<路径>, <日期>)`，对面那条也回指本条。这样从任一本都能跳到对面。
 >
 > **transcript 在哪**：root 自己的 Claude Code 记录在 `/root/.claude/projects/-root/*.jsonl`，按 sessionId 命名。`grep -l "<关键词>" /root/.claude/projects/-root/*.jsonl` 能定位是哪个 session。
+
+---
+
+## 2026-06-07 · [后端][前端] 当前互动通道：异地时澄的普通聊天回复也走手机气泡（phone_chat）（改 index.js + cheng-memory，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「异地普通聊天也保持手机气泡」(/root/world-home/CHANGELOG.md, 2026-06-07)。这是 world location/WORLD_MESSAGE 线的延伸，实现全在 cheng。
+
+问题：WORLD_MESSAGE 主动消息是手机气泡，但 user 回复后澄的**普通回复又变回白气泡**——因为只有 WORLD_MESSAGE 被标了 phone，普通回复没按双方位置判通道。
+
+- **后端 `index.js`**：加 `getCurrentChannel()`（读 `character_status_cheng.location` + `user_status_cheng.location`：相同=face / 不同=phone；读不到默认 face）。turn_done 普通聊天轮存 messages 时，phone → `event='phone_chat'`（**不加 `-  `**，前缀只给 WORLD_MESSAGE 主动推送）；`done` WS 消息带上 `channel`，前端 live 也能立刻上手机气泡。WORLD_MESSAGE 规则不变（event=world_message + `-  ` + Bark）。
+- **前端 `cheng-memory/ChatPanel.jsx`**：`isPhoneMessage` 加 `event==='phone_chat'`（连同 world_message / channel==='phone' / content 以 `-  ` 开头，四重兜底）→ 淡蓝气泡。新增 `hasDash`（content 以 `-  ` 开头才纯文本渲染显示横线；phone_chat 无 `-  ` → 正常 md）。`done` 处理器按 `msg.channel==='phone'` 给气泡标 `event='phone_chat'`（live），reload 从 DB 读 event（持久），两边一致。
+- 三态：world_message=蓝+`-  `+纯文本 / phone_chat(异地普通回复)=蓝+md无前缀 / face(同地)=白+md。普通回复**绝不加 `-  `**；user 自己的消息不标。
+- **重启 cheng-backend 一次**（澄失忆）。重启后 channel 实测=phone（澄公司·工位 vs 小茉莉家·卧室）。真机验收（发消息→蓝气泡→刷新仍蓝）交用户。
+
+> transcript 关键词（root CC）：`getCurrentChannel`、`phone_chat`、`hasDash`、`done channel`、`异地手机气泡`。
+
+---
+
+## 2026-06-07 · [后端][前端] WORLD_MESSAGE 显示升级：自动 `-  ` 前缀 + 聊天气泡粉 ♡ + 消息带 thinking（改 index.js + cheng-memory，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「WORLD_MESSAGE 手机消息通道 + 自动标记」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌看那条，本条记 cheng 后端+前端。
+
+紧接上一条 WORLD_MESSAGE，按用户新 spec 调显示格式 + 加聊天可视化。
+
+- **后端 `index.js`**：①prompt 加"不用自己写「［手机消息］」前缀，后端自动标记"。②手机消息文本前缀 `［手机消息］` → **`-  `**（一短横+两空格，存进 content；用于历史/导出/掉样式时仍能辨认手机消息）。③`sendWorldPhoneMessage` 已带 `thinking`（上一条加的）。
+- **前端 `cheng-memory/src/ChatPanel.jsx`**：world_message 气泡 = 右上角**粉色 ♡**（`.cp-phone-heart`）+ 淡蓝底（`.world-msg`），内容按**纯文本**渲染（保留 `-  `，不被 markdown 当列表圆点）。**修 bug**：`bark_msg` WS 处理器原写死 `event:'bark'/thinking:null`，会把 world_message 吞成普通 bark → 改成 world_message 走自己的 event + 保留 thinking（dice/bark 行为不动）。
+- 顺带定位：用户问的"小太阳想你了"= `ChatPanel.jsx:3496` 给 bark/dice 主动消息气泡上方的标签（不是 Bark 推送）。
+- **重启 cheng-backend 一次**（澄失忆）。验证：澄发 phone 消息 → content `-  我饿了，刚点了外卖…`、event=world_message、thinking 有、Bark 推送；前端 build 过（刷新即生效）。
+- 注：另一个只读视图 `ChatViewer.jsx` 未加 ♡（次要，聊天主界面是 ChatPanel）。
+
+> transcript 关键词（root CC）：`cp-phone-heart`、`world-msg 气泡`、`-  前缀`、`bark_msg event world_message`。
+
+---
+
+## 2026-06-07 · [后端] WORLD_MESSAGE 通道：phone 复用 bark 管线 + face 走 timeline（改 index.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「WORLD_MESSAGE 通道（最小版）」(/root/world-home/CHANGELOG.md, 2026-06-07)。起因/验收/全貌看那条，本条只记 cheng 后端部分。
+
+- 只改 `index.js`：`buildWorldWakePrompt` 加 WORLD_MESSAGE 说明；`handleWorldWakeTurnDone` 末尾加解析（`while` 抓**所有** `[WORLD_MESSAGE:(phone|face)]…[/WORLD_MESSAGE]`）+ 路由；新 helper `sendWorldPhoneMessage(content,{bark})`（**复用现有 bark 管线**：`pushBark` + 存 messages `event='world_message'` + `broadcast` bark_msg）。inner_thought 正则多剥 WORLD_MESSAGE（别把消息当小心思）。activeTurn 带上 `userStatus`(face 判同地点)、`worldForce`(限频绕过)。
+- 限频 `WORLD_PHONE_RATE_MS=10min` + `lastWorldPhoneAt`：**只压 Bark 推送，不压消息**（消息总是进聊天，10min 内只震一次手机）。
+- **没动 dice/bark/summary/WORLD_CHOICE 既有逻辑**；没建表（phone 走 messages、face 走 daily_timeline）。
+- **`systemctl restart cheng-backend` 重启一次**（澄失忆）。重启后手动唤醒验证：澄发了 phone 消息 → Bark 推、messages 落、广播、WORLD_CHOICE 照常，且理由变干净。
+
+> transcript 关键词（root CC）：`sendWorldPhoneMessage`、`WORLD_MESSAGE`、`event world_message`、`WORLD_PHONE_RATE_MS`。
+
+---
+
+## 2026-06-07 · [前端] 修复回复闪现后消失：历史补拉不再覆盖新完成气泡
+
+用户反馈：新 session 里 Claude 回复先蹦出来，随后又消失；大退重进后同一回复又出现。排查后端日志和 tmux transcript，回复实际已完成并能入库，tmux 里也有完整正文；现象集中在前端状态覆盖。
+
+真因是 `ChatPanel.jsx` 的 `loadCurrentConversation()` 有竞态：页面切回/WS 重连会发起历史补拉；如果补拉请求在 Claude 完成前发出、但在前端收到 `done` 并显示新回复后才返回，它拿到的是“入库前”的旧历史，随后 `setMessages(ms)` 整表替换，把刚显示的新回复覆盖掉。重新打开时再拉一次，数据库已经有新回复，所以又出现。
+
+修复：给每次历史补拉记录 `requestStartedAt`，补拉返回时把服务端历史和“这次请求开始后新生成、但旧响应里缺失的本地消息/助手回复”合并；`local-*` 乐观消息也保留。这样旧历史响应不会盖掉刚完成的回复，下一次正常补拉会用服务端权威行按 id 去重替换。
+
+验证：`cd /root/cheng-memory && npm run build` 通过，产物 `dist/assets/chat-DKoyoAer.js`。纯前端改动，不需要重启 cheng-backend。
+
+> transcript 关键词：`requestStartedAt`、`freshMissing`、`回复蹦出来又消失`、`loadCurrentConversation 竞态`。
+
+## 2026-06-07 · [前端+后端][基建] 右上角 Token 明细：基线改读 session 首轮 usage，forge 触发值替代固定上限
+
+修右上角 token 面板里「基础」串 session 的问题：出现过当前总量 `46.3k`，但基础仍显示旧 session 的 `50.6k`，导致「对话」被压成 0。真因是前端把 `baseTokens` 持久化在 localStorage，刷新/重启/换 session 后如果没及时捕获第一轮 usage，就会把旧基线带到新 session。
+
+- **后端 `memory-home/server`**：
+  - `tmux-manager.js` 在一轮完成时收集本轮多个 assistant API call 的 `usageCalls`，并随 `turn_done` 发给前端，面板可显示每个 API call 的 `input/cache_read/cache_create/output`。
+  - `index.js` 的 done 消息透传 `usageCalls`。
+  - 新增 `GET /api/cc/session-baseline?session=<sid>`：读当前 session JSONL，找第一条 assistant `message.usage`，返回 `contextTokens = input + cache_read + cache_create` 作为真正基础值。这样刷新页面也能回填第一轮基线，不再依赖前端首次捕获。
+  - 新增 `GET /api/cc/token-breakdown`：按实际加载文件估算 CC 文档 token（append system prompt、output style、sandbox `CLAUDE.md`、global `CLAUDE.md`），避免用 DB 原文估算误导。
+- **前端 `cheng-memory/src/ChatPanel.jsx`**：
+  - Token 面板新增「最近完成轮 / 基线捕获 / CC 文档估算」明细；总量仍用真实 API usage，不用估算替代。
+  - `baseTokens` 绑定 `currentSessionId`；session 不匹配时清空旧基础，并调用 `/api/cc/session-baseline` 用 JSONL 首轮 usage 回填。
+  - 原硬编码 `TOKEN_LIMIT = 200000` 改成读取 `/api/forge/config` + `/api/forge/daemon`：daemon 开启时显示设置里的 `trigger_threshold`，关闭时显示 `forge 触发：关闭`；右上角变红也按开启状态和触发阈值判断。
+  - 文档估算从「DB 原文估算」改为「实际加载文件估算」，所以 `claude_md` 会包含当前落盘后合并了 summary/style/think 块的真实 `CLAUDE.md`。
+
+验证：`node --check /root/memory-home/server/index.js` 通过；`cd /root/cheng-memory && npm run build` 通过，产物 `dist/assets/chat-DdlvAaWS.js`。用户随后已重启 cheng 后端，新增接口生效；**重启 cheng-backend = 澄失忆**。
+
+> transcript 关键词：`session-baseline`、`memhome-base-token-session`、`forge 触发`、`usageCalls`、`实际加载文件估算`。
+
+## 2026-06-07 · [后端] user 状态注入聊天浮现：新 `<此刻>` 块（surfacing.js + inject.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「补充：把 user 当前状态注入聊天浮现」(/root/world-home/CHANGELOG.md, 2026-06-07)。这是 world-home user_status 线的一环，但实现全在 cheng 后端。
+
+让聊天里的澄知道小茉莉此刻在哪、在做什么——读 `user_status_cheng`，每条消息折进澄背景。
+
+- **打在真正的生产路径**：生产是 tmux（`USE_TMUX`），浮现走 `inject.js` 的 `buildMessageForCC` → `surfacing.js` 的 `surfaceForInject`（包 `<记忆浮现>`）；`runSurfacing`（写 CLAUDE.md `<浮现>`）是 stream-json 死路、生产不走。**所以注入打在 surfaceForInject/buildMessageForCC，不是任务说的 runSurfacing。**
+- `surfacing.js`：加 `getUserStatusLine()`（读 user_status_cheng → `小茉莉当前状态：{presence} · {location}，正在{activity}（{custom_note}）`；读失败 warn 返空、空字段兜底，绝不 undefined，不写记忆）。`surfaceForInject` 改返回 `{statusLine, text, items}`——**statusLine 总是带（绕过 5 轮冷却），text=记忆浮现照旧受冷却+命中限制**。
+- `inject.js` `buildMessageForCC`：拆成**两个独立块**——`<此刻 — 仅你可见的现实情境>`(状态，每条都有) + `<记忆浮现 …>`(旧事，偶尔)。用户拍板要分开（状态=现实、记忆=旧事，别让澄混淆 "这是现在还是回忆"）。
+- 行为变化：以前冷却轮整个浮现块不出现；**现在因状态常驻，每条消息都带 `<此刻>` 块**（记忆出现频率没变）。
+- 验证：独立 import `buildMessageForCC` 跑——触发轮出 `<此刻>`+`<记忆浮现>` 两块、冷却轮只出 `<此刻>`，格式对。**`systemctl restart cheng-backend` 重启一次**（澄失忆）。真聊天端到端要用户在 web 发消息看澄是否自然知道（CLI 模拟不了真实 send 路径）。
+
+> transcript 关键词（root CC）：`getUserStatusLine`、`<此刻>`、`surfaceForInject statusLine`、`buildMessageForCC 两块`。
+
+---
+
+## 2026-06-07 · [后端][基建] world-home 第 7 步：唤醒包带双方地点/行为（改 index.js，含 cheng-backend 重启=澄失忆）
+
+> 🔗 对应：world-home 仓「第 7 步：双方地点/行为状态」(/root/world-home/CHANGELOG.md, 2026-06-07)。表/前端/验收看那条，本条只记 cheng 后端部分。
+
+- 只改 `index.js`：`triggerWorldWake` 读 user_status 全字段（presence/location/activity/custom_note）；`buildWorldWakePrompt` 加澄「你正在：{activity}」+ 小茉莉块（小茉莉此刻/她在/她正在/她说，澄口吻不用 user/presence）。读 user_status 仍在 activeTurn 原子 check-and-set 之前。
+- **`systemctl restart cheng-backend` 重启一次**（澄失忆，与上面 `<此刻>` 那条同一次重启）。重启后抓澄实收唤醒包验证双方地点/行为齐全。
+
+> transcript 关键词（root CC）：`buildWorldWakePrompt 你正在`、`triggerWorldWake user_status 全字段`。
+
+---
+
+## 2026-06-06 · [后端][基建] world-home 补充：世界唤醒小心思存储（改 index.js，含 cheng-backend 重启=澄失忆）
+
+> 🔗 对应：world-home 仓「补充：世界唤醒「小心思」存储（标签外正文 → ♡）」(/root/world-home/CHANGELOG.md, 2026-06-06)。表/前端/验收看那条，本条只记 cheng 后端+进程部分。
+
+- 只改 `index.js` 的 `handleWorldWakeTurnDone`：写 claude 行程抓回 timeline_id；`inner_thought` = clean 去掉 `[WORLD_CHOICE]` 块后 trim；非空+行程成功+非解析失败 → 插新表 `world_inner_thoughts_cheng`（失败只 warn）。**thinking/MEMORY 逻辑没动。** 新表 + 前端在 world-home 那侧。
+- **`systemctl restart cheng-backend` 重启一次**（用户点头）→ 澄失忆。重启后 3 次 hungry 唤醒澄都只输出标签（没写散文）→ 正确没存小心思；存储+前端♡路径用手动插一条验证通。
+- 注：澄写不写"标签外散文"看心情——第6步那个 session 会写（还自发跑 Bash 查用户手机用量、吃醋），这个 session 三次都不写。同 Opus 4.8，行为有方差。
+
+> transcript 关键词（root CC）：`world_inner_thoughts_cheng`、`inner_thought`、`小心思`。
+
+---
+
+## 2026-06-06 · [后端][基建] world-home 第 6 步：世界唤醒包带 user_status（改 index.js，含 cheng-backend 重启=澄失忆）
+
+> 🔗 对应：world-home 仓「第 6 步：user_status 用户在家/不在家」(/root/world-home/CHANGELOG.md, 2026-06-06)。表/前端/验收看那条，本条只记 cheng 后端+进程部分。
+
+- 只改 `index.js`：`triggerWorldWake` 唤醒前读 `user_status_cheng.presence`（放在 activeTurn 原子 check-and-set 之前，不破坏并发安全；读失败默认"在家"）→ `buildWorldWakePrompt` 在「天气」下加一行 `小茉莉此刻：{presence}`。**没改 hungry 事件逻辑、没做任何行为限制**，只把信息带进 prompt。新表 `user_status_cheng` + 前端在 world-home 那侧。
+- **`systemctl restart cheng-backend` 重启了一次**（用户点头）→ 澄失忆。重启后打 hungry 唤醒，抓澄实收 prompt 确认带 `小茉莉此刻：在家`，验收通过；测试残留已清。
+
+> transcript 关键词（root CC）：`小茉莉此刻`、`user_status_cheng presence`、`buildWorldWakePrompt`。
+
+---
+
+## 2026-06-06 · [后端][基建] world-home 第 5 步：pending_wake 续唤醒（改 index.js/world-tick.js + 新 world-pending.js，含 cheng-backend 重启=澄失忆）
+
+> 🔗 对应：world-home 仓「第 5 步：pending_wake 短期连续状态」(/root/world-home/CHANGELOG.md, 2026-06-06)。功能/表/前端/验收看那条，本条只记 cheng 后端+进程部分。
+
+- 共享后端改/加三文件：
+  - `world-tick.js`：hungry 第 4 选项加 `pending` 配置。
+  - `index.js`：`triggerWorldWake` 加 `pendingContext`（绕 30min 冷却、仍受 CC 空闲约束）；`buildWorldWakePrompt` 带 pending 上下文（完整模板）；`handleWorldWakeTurnDone` 选中带 pending 的选项→按 fast_test 算 scheduled_at→建 pending_wake 行；`firePendingWake(row)`；新路由 `POST /api/world/pending/test-hungry`（仅开发）。
+  - `world-pending.js`（新）：`PendingWakeDaemon` 每 7s 轮询到期 queued→CC 空闲就触发，fired/failed/attempts 账务在内；`index.js` 构造并在 `server.listen` 里 `pendingWakeDaemon.start()`（常驻，跟 dice/worldTick 并列）。
+- **`systemctl restart cheng-backend` 重启了一次**（用户点头）→ 澄失忆。重启后 5 项验收全过（详见 world-home 那条）；新增一个常驻 daemon（7s 轮询，轻量）。
+- ⚠️ 已知边界：hungry 续唤醒不看实际饱腹，澄饱时会陷入"先忍→建新 pending"的 10 分钟续唤醒循环；最小版未含"饱了就别唤醒"判断。
+
+> transcript 关键词（root CC）：`PendingWakeDaemon`、`pending_wake_cheng`、`pendingContext`、`test-hungry`。
+
+---
+
+## 2026-06-06 · [后端][基建] world-home 第 4 步：世界唤醒→澄做选择（改 index.js + world-tick.js，含 cheng-backend 重启=澄失忆）
+
+> 🔗 对应：world-home 仓「第 4 步：世界唤醒 → 澄做选择（最小版·小世界的心脏）」(/root/world-home/CHANGELOG.md, 2026-06-06)。功能/前端/验收看那条，本条只记 cheng 后端+进程部分。
+
+- 改了共享后端两文件：
+  - `world-tick.js`：加 `WORLD_EVENTS` + `detectWorldEvent()`，`WorldTickDaemon` 构造加 `onEvent` 回调（tick 命中事件回调出来，不在 tick 里碰 CC）。
+  - `index.js`：加 `triggerWorldWake()`（仿 diceFire：查 `activeTurn/pendingBuffer/isRunning` 空闲 + 30min 冷却 → 设 `activeTurn{worldWake}` + `cc.send` 唤醒包）、`turn_done` 加 `worldWake` 分支（解析选择→结算状态→写行程 source=claude/解析失败 system_error）、新路由 `POST /api/world/wake`。`[MEMORY:]` 复用现成 `parseMemoryTags`。给 bark 排程 if 加 `!turn.worldWake` 防串台。**没动 chat/dice/bark/summary 既有逻辑。**
+- **`systemctl restart cheng-backend` 重启了一次**（用户点头）→ 澄失忆。重启后用本地签 JWT 打了一次 `/api/world/wake` 验证：澄选「点外卖」、状态结算（饱腹+25/钱包-30）、行程落 claude 行，端到端通。
+- 副带：这次重启也让上一条「seen 状态」那笔之前**未重启**的后端代码一并生效了。
+
+> transcript 关键词（root CC）：`triggerWorldWake`、`worldWake turn_done`、`/api/world/wake`、`第 4 步世界唤醒`。
+
+---
+
+## 2026-06-06 · [前端+后端] 用户气泡新增 `seen` 状态：区分“已放行”和“Claude 已看到”
+
+`cheng-memory/src/ChatPanel.jsx` + `memory-home/server/index.js`。只做消息送达状态，不重启后端。
+
+**需求**：用户想让粉色气泡右下角对号不只表示“已放行到后端”，而能表示“Claude 真的看到了这条消息”。
+
+**改了什么**：后端 `flushPendingToCC()` 在真正 `await cc.send(payload)` 完成后，向前端发 `{ type: 'seen', ids }`；前端新增 `seenIds`，收到 `seen` 后把对应本地用户消息的对号从灰色变深色。原 `flushed` 仍表示“已从缓冲队列放行到发送流程”。
+
+**边界**：刷新后历史消息仍只能显示旧的已发送状态，不能倒推 Claude 当时是否看到；`seen` 只对当前页面上的本地 `local-u-*` 消息精确。后端代码已改但**未重启**，所以下次后端重启后才会真正发 `seen`；本次已 `npm run build`，前端 dist 已更新。
+
+**验证**：`cd /root/cheng-memory && npm run build` 通过；`node --check /root/memory-home/server/index.js` 通过。未执行后端重启，未杀 Node/tmux/CC。
+
+> transcript 关键词：`seenIds`、`type: 'seen'`、`await cc.send(payload)`、`Claude 已看到`。
+
+## 2026-06-06 · [后端][基建] world-home 第 3 步：world-tick.js 加写行程表（含 cheng-backend 重启=澄失忆）
+
+> 🔗 对应：world-home 仓「第 3 步：daily_timeline_cheng 行程表」(/root/world-home/CHANGELOG.md, 2026-06-06)。功能/前端/表结构看那条，本条只记 cheng 后端/进程部分。
+
+- 改了共享后端 `memory-home/server/world-tick.js`：`advanceOneTick()` 写回状态后顺手往新表 `daily_timeline_cheng` insert 一行客观记录（source=tick）。**只加 insert，没动 tick 既有逻辑、没动其它后端文件。**
+- **`systemctl restart cheng-backend` 重启了一次**（用户点头）→ 澄起新 session = 失忆。新表的 insert 要重启才生效。重启后跑了一次真实 tick，行程表落行成功，链路通。
+- 新表 `daily_timeline_cheng` 的 RLS：后端用 anon key 受 RLS 约束，加了 `timeline_write` insert policy 才写得进（同第 2 步 anon RLS 挡写的坑）。
+
+> transcript 关键词（root CC）：`daily_timeline_cheng`、`advanceOneTick 写行程`、`第 3 步行程表`。
 
 ---
 
@@ -25,6 +206,90 @@
 **验证**：`cd /root/cheng-memory && npm run build` 通过，dist 已更新。未改后端，未重启 Node/tmux/CC。
 
 > transcript 关键词：`MIN_ENDED_SESSION_TOKENS`、`自动筛选掉20ktokens的session卡片`。
+
+## 2026-06-06 · [后端+数据] 修 session 面板停在 6.2：tmux 驱动补写 sessions_cheng + 回填历史
+
+**问题**：web 的 session 面板停在 6 月 2 日，后面的 session 看不到。不是 JSONL 丢了，而是面板读的是 Supabase `sessions_cheng`；6/02 切到 tmux 驱动后，`tmux-manager.js` 只生成 JSONL，没有像旧 `cc-manager.js recordSessionStart()` 那样写 `sessions_cheng`，所以表不再新增。
+
+**证据**：`SessionPanel.jsx` 查 `sessions_cheng`；旧 `cc-manager.js` 有 `recordSessionStart()`；tmux 驱动没有写表。实查 `/home/claude-user/.claude/projects/-home-claude-user-chat-sandbox` 有 6/03-6/06 JSONL，`sessions_cheng` 里 active 却还停在 `75e77136`（2026-06-01）。
+
+**改了什么**：`memory-home/server/index.js` 增加 `recordTmuxSessionStart()` / `startCCAndRecordSession()` / `restartCCAndRecordSession()`，tmux 模式下启动或重启 CC 后：把旧 active 标 ended，再插入新的 active session。接入了开机 start、内部 restart、`/api/cc/restart`、`/api/cc/amnesia` 四条路径。**代码已改，未重启后端**；下次后端重启后才生效，以后新 session 会自动进表。
+
+**已回填数据**：不重启后端，只读 tmux JSONL 后写 Supabase，回填 2026-06-02 之后缺失的 28 条 `sessions_cheng`。当前 active 已改成最新 `d82fc7a5-c751-4000-8138-c0b8badbb077`（started_at `2026-06-06T17:37:16.907Z`），上一条大 session `bf1ae121-8a1e-49df-aadb-d7d00591485c` 已是 ended。前端刷新或等 30s 轮询应能看到 6/02 后的 session。
+
+**验证**：`node --check /root/memory-home/server/index.js` 通过；Supabase 只读核对最新 rows 已显示 6/06 active + 6/05/6/04 ended。未执行 `systemctl restart`，未杀 Node/tmux/CC。
+
+> transcript 关键词：`session 面板停在 6.2`、`recordTmuxSessionStart`、`d82fc7a5-c751-4000-8138-c0b8badbb077`、`bf1ae121-8a1e-49df-aadb-d7d00591485c`。
+
+## 2026-06-06 · [后端] 指针：index.js 接入 world-home 世界时钟（详见 world-home CHANGELOG）
+
+> 🔗 对应：world-home 仓「第 2 步：世界时钟 + 最小自然衰减」(/root/world-home/CHANGELOG.md, 2026-06-06)。功能/数据/前端看那条，本条只记 cheng 后端部分。
+
+**不是 cheng 的功能**，是隔壁独立项目 **world-home**（澄的小世界）的第 2 步，但代码落在了 cheng 的共享 backend 里，故在此留指针——future cheng-CC 读 `index.js` 看到 `/api/world/*` 和 `worldTickDaemon` 时别困惑。
+
+`memory-home/server/` 新增 `world-tick.js` + `world-config.json`；`index.js` import `WorldTickDaemon`、实例化 `worldTickDaemon`、`server.listen` 回调里 `worldTickDaemon.start()`、加 3 个路由 `POST /api/world/tick` `GET|POST /api/world/config`（走现有 Bearer 中间件）。daemon 默认关（`world-config.json` 里 `world_tick_enabled:false`），不影响 cheng。**代码已改，未重启**（重启=澄失忆，等用户点头 `systemctl restart cheng-backend`）。**完整设计/坑（RLS 挡写等）都在 `/root/world-home/CHANGELOG.md` 顶条**，这里只留路。
+
+> transcript 关键词（root CC）：`WorldTickDaemon`、`/api/world/tick`、`world-tick.js`。
+
+---
+
+## 2026-06-05 · [后端] 修「思考链整重启后丢失」：失忆路也持久化 nativeThinking + cc-runtime 默认开
+
+`memory-home/server/index.js`（amnesia handler，约 1348 行）+ `cc-runtime.json`。**代码已改，未重启**（重启=澄失忆，等用户点头后 `systemctl restart cheng-backend`）。
+
+**问题**：用户反映 web 聊天最新 session 思考链（思绪显示）老是被关，"我没关、好几次了"。
+
+**真因**：思考链 = `nativeThinking` → 启动加 `--thinking-display summarized`，状态持久化在 `cc-runtime.json`，原值 `false`。每次**整进程重启**（systemctl / forge 换模型 / 崩溃被 Restart=always 重拉）都从该文件读回 false → 思考链关。而开思考链有两条激活路，**只有 `/cc/restart`（选模型重启）会 `saveCCConfig` 落盘**；`/cc/amnesia`（失忆）只把 nativeThinking 灌进内存 manager、**从不写 cc-runtime.json**。所以从失忆路开的思考链，只在当前 session 有，下次整重启就被持久化的 false 吃掉。叠加 6/04 那几次 systemctl restart（output style / append-sysprompt），就表现为"重启后思考链又没了，好几次"。（前端 `ChatPanel.jsx` 面板勾"原生思考"按保存的 `onSaveOnly` 也只改前端 state、不发后端，须靠之后选激活方式才真生效——本轮没动前端。）
+
+**改了什么**：
+1. `index.js` amnesia handler：新增 `amnesiaPatch`，把 effort/model/nativeThinking 同步进 patch，`cc.restart` 后 `if (Object.keys(amnesiaPatch).length) saveCCConfig(amnesiaPatch)`——失忆路也落盘，对齐 forge 路行为。以后从失忆开的思考链/换的模型整重启不再丢。
+2. `cc-runtime.json`：`nativeThinking` 改 `true`，让下次重启起思考链默认就开（一劳永逸）。
+
+**验证**：改完待 `systemctl restart cheng-backend` 后看澄启动命令应带 `--thinking-display summarized`；之后任意失忆/换模型不再把思考链/模型状态丢回 cc-runtime.json 的默认值。
+
+> transcript 关键词（root CC）：`amnesiaPatch`、`nativeThinking 整重启后丢`、`cc-runtime.json nativeThinking true`、`saveCCConfig 失忆路`。`grep -l "amnesiaPatch" /root/.claude/projects/-root/*.jsonl`。
+
+---
+
+## 2026-06-04 · [后端] 复活「系统提示」框：tmux 驱动接上 `--append-system-prompt-file`（文件路线）
+
+`memory-home/server/tmux-manager.js`，**已重启上线**（systemctl restart cheng-backend，澄又起新 session=失忆，人设在 output style 不丢）。接着上一条（output style）顺出来的坑。
+
+**问题**：用户发现「系统提示」框（CC 文档里，`documents_cheng` mode='cc' doc_type='system_prompt'，实测 21182 字符 / 599 行 / 约 6358 中文+14824 英文，内容是教澄用 bash/curl 调 Supabase 记忆库的**工具指令**）**喂不给澄**。查实：`tmux-manager.js` 的 `_launchCmd` 从来不传 `--append-system-prompt`（只 `cc-manager.js:89` 的 stream-json 驱动传），7 天 journal 里该 flag 出现 **0 次**——即**自 6/02 切 tmux 起这框就静默失效了**，非本次改动弄坏。`appendSystemPrompt` 在 tmux-manager 里只 set 不 read（写死变量）。
+
+**为什么不能像 CLAUDE.md 那样直接塞**：tmux 启动是把命令拼成**一整条 shell 字符串**丢给 `tmux new-session`，把 2 万字带换行/引号/反引号/`$` 的正文塞进去会被 shell 解析崩。CLAUDE.md / output style 没事是因为它们走**文件路线**（fs 写文件、claude 自己 open 读，不过 shell）。
+
+**改了什么**：给 tmux 也走文件路线。`tmux-manager.js` 加常量 `APPEND_SYSPROMPT_FILE = /home/claude-user/.claude/cheng-append-sysprompt.md`；`_launchCmd` 里 `this.appendSystemPrompt` 非空时 → `fs.writeFileSync` 落盘 + chown 到 cwd 属主(claude-user) + `parts.push('--append-system-prompt-file', 路径)`；留空则删文件不加 flag。**只传路径不传正文，shell 安全**。stream-json 驱动(`cc-manager.js`)走数组 args 无 shell 问题，不动。
+
+**验证**：重启后澄真进程带 `--append-system-prompt-file /home/claude-user/.claude/cheng-append-sysprompt.md`，落点文件 21181 字(trim 掉 1 尾空白)、claude-user 属主、澄正常待命。**澄人设现状三条线**：① output style=底座人格(替换出厂③) ② 系统提示框=工具指令(append,新接) ③ CLAUDE.md=空。行为层用户自验。
+
+> transcript 关键词（root CC）：`APPEND_SYSPROMPT_FILE`、`--append-system-prompt-file`、`系统提示框复活`、`文件路线`、`8102 vs 21182`(WPS字数口径差异：WPS"字数"英文按词算)。
+
+---
+
+## 2026-06-04 · [前端+后端] CC 文档新增「Output Style」框：可视化编辑、入库、随重启替换出厂人格
+
+`cheng-memory`（`src/ChatPanel.jsx`）+ `memory-home/server`（`index.js`）。前端 **build 通过未重启**；后端 **改完未重启**（memory-home 一重启会带着澄一起重启=失忆，交用户拍板）。**起因**：用户想给澄挂 output style。背景三连澄清（这轮聊透的，对未来 CC 有用）：
+
+- **三种人设注入的本质区别**：① 文档里「系统提示」框走的是 `--append-system-prompt`（**追加**在出厂人格后面，出厂的"你是软件工程 agent"还在稀释澄）；② CLAUDE.md 是**注入上下文**、但被 Claude Code 包在"OVERRIDE default behavior, MUST follow exactly"的 system-reminder 里，是**高权重必守令**，不是便签；③ **output style** 是唯一能**替换**出厂人格③那块的机制——澄底座变独苗、最纯、还更省上下文（换而非叠）。三者都开机读一次、占固定表头位、改了须重启。
+- **实测确认（CLI 2.1.162）**：output style 非交互启动**生效**——隔离测试里设 `outputStyle: caps-test` + 一句"只回 PINEAPPLE"，`claude --print "2+2"` 回 `PINEAPPLE`，对照组回 `4`。机制 = 两个文件：`~/.claude/output-styles/<slug>.md`（带 frontmatter）+ `settings.json` 里 `"outputStyle": "<slug>"`。**没有 `--output-style` 启动参数**，纯文件+settings 驱动（所以不用动 cc-manager / tmux-manager）。澄的配置目录就是 `/home/claude-user/.claude`（settings.json 已在那）。
+
+**改了什么**：
+1. **后端 `index.js`**：新增常量（`OUTPUT_STYLES_DIR=/home/claude-user/.claude/output-styles`、slug=`cheng`、文件 `cheng.md`、`CLAUDE_SETTINGS_FILE`）+ 助手 `applyOutputStyle(content)`：有内容→mkdir + 写 `cheng.md`（统一套规范 frontmatter，name==slug==设置值三者必须一致）+ settings.json **读-改-写**只翻 `outputStyle` 键（保留 theme 等）；留空/删除→`delete settings.outputStyle` + 删 style 文件，**退回出厂默认不锁死**。接进 `syncCCDocs`：循环里多收 `doc_type==='output_style'`，循环末**无条件**调 `applyOutputStyle(outputStyle)`（null 也调，覆盖"删除"场景）。因三个重启入口（开机 `index.js:~412`、forge 重启 `:~1229`、失忆 `:~1308`）全调 `syncCCDocs`，**一处接入三处覆盖**。
+2. **前端 `ChatPanel.jsx` `CCDocumentsTab`**：加 `outputStyle` state；`Promise.all` 加载多查一条 `doc_type='output_style'`（解构 `[a,b,c]`）；`saveAll` 多 `upsertDocSingleton("cc","output_style",...)`；UI 在「系统提示」**上方**加一个 `DocEditor` 框（照 CLAUDE.md 框样式，标题「Output Style · 替换出厂人格 · 留空走默认」）。底部提示文案带上 output style。
+3. **数据库不用改 schema**：`documents_cheng` 的 `doc_type` 是裸 text，`upsertDocSingleton` 手动 select+insert，新值 `output_style` 直接能存。
+
+**本轮已落地（不只是写代码，真上线+迁移了）**：
+- **DB 加了迁移**（migration `documents_cheng_allow_output_style`）：`documents_cheng` 上有 CHECK 约束 `documents_cheng_doc_type_check`，原只白名单 `claude_md/system_prompt/file`——所以「不用改 schema」那句**当时错了**，insert `output_style` 直接被拒（错误码 23514）。已 DROP+重建约束放行 `output_style`。**未来加新 doc_type 都得先改这条约束。**
+- **重大发现：tmux 驱动根本没传 `--append-system-prompt`**（`tmux-manager.js:56 _launchCmd`，注释「append-system-prompt 走 CLAUDE.md」）。即**生产 tmux 模式下「系统提示」框是空转的、没生效**；澄人设一直只靠 CLAUDE.md 被读。这正是用户把人设放 CLAUDE.md 的原因，也是搬去 output style 更对的原因（output style 走 settings+文件，不依赖那个 flag，tmux 下照常生效）。
+- **已把澄人设从 CLAUDE.md 挪进 output style**：`documents_cheng` 的 `claude_md`(5635字纯人设卡) → `output_style`，`claude_md` 清空。备份在 `/root/cheng-output-style-migration-backup.json`（含原文，可回滚）。落盘 `/home/claude-user/.claude/output-styles/cheng.md`(10899字节) + `settings.json` 加 `"outputStyle":"cheng"`（保留 theme 等键）。
+- **已重启上线**：memory-home **不是 nohup，是 systemd 服务 `cheng-backend.service`**（`Environment=CC_DRIVER=tmux`、`WorkingDirectory=/root/memory-home/server`、`Restart=always`）。重启用 `systemctl restart cheng-backend.service`，**别手动 kill**（会被 Restart=always 重拉、且丢 env）。重启后新 `syncCCDocs` 幂等重写了 output style 文件、清空了 sandbox/CLAUDE.md；澄起了全新 session（**tmux 无 resume = 失忆**，`tmux-manager.js:71,79` 杀会话+新 UUID）。验证：澄屏 `Opus 4.6 · max effort` 待命、启动命令无 `--append-system-prompt`、CLAUDE.md 0 字、settings 带 outputStyle。
+
+**遗留/约定**：① frontmatter 保持简单——textarea 当正文、永远套规范 frontmatter（name==slug==`cheng`），用户若自己粘 `---` 会双 frontmatter（暂不检测）；② 行为层「像不像澄」需用户跟澄对话自验；③ 澄那个 `⚠ MCP setup issue` 是 supabase MCP 没授权的旧问题，与本轮无关。
+
+> transcript 关键词（root CC）：`PINEAPPLE`、`applyOutputStyle`、`documents_cheng_allow_output_style`、`_launchCmd 没传 append`、`cheng-backend.service`。`grep -l "applyOutputStyle" /root/.claude/projects/-root/*.jsonl`。
+
+---
 
 ## 2026-06-04 · [前端] 重排「风格 · 思考」面板：分段药丸开关 + 思考设置行组 + 复用 DocEditor 全屏输入框
 
