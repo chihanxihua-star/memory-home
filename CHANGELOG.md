@@ -15,6 +15,18 @@
 
 ---
 
+## 2026-06-07 · [后端] <此刻>浮现加 getChengStatusLine：澄聊天里也知道自己的状态（改 surfacing.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「<此刻>浮现补澄自己的状态」(/root/world-home/CHANGELOG.md, 2026-06-07)。
+
+- 问题：澄 DB 已下班到家，但聊天里以为自己在加班。根因 `<此刻>` 只注入小茉莉状态、不注入澄自己的。
+- `surfacing.js` 加 `getChengStatusLine()`(读 character_status_cheng→「现在HH:mm，你在 地点，活动」)，surfaceForInject 把澄自己的状态+小茉莉的状态都拼进 `<此刻>`。
+- **重启 cheng-backend 一次**(澄失忆)。验证 statusLine 两行齐。
+
+> transcript 关键词(root CC)：`getChengStatusLine`、`<此刻>`、`surfaceForInject`。
+
+---
+
 ## 2026-06-07 · [后端] world-home 10C：world-effects 全局结算器 + 事件迁移 effects_hint（新 world-effects.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「10C：effects_hint + resolveEffects 全局状态结算器」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌/验收看那条。
