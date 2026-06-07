@@ -15,6 +15,17 @@
 
 ---
 
+## 2026-06-07 · [后端] world-home 9.5 步：[TODO] 解析写 phone_todos_cheng（改 index.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「9.5 步：澄世界唤醒里自动写小手机待办」(/root/world-home/CHANGELOG.md, 2026-06-07)。
+
+- `index.js`：世界唤醒 prompt 加 `[TODO]…[/TODO]`；turn_done 解析所有 TODO→写 phone_todos_cheng(source=claude/open)，空跳过+去重(同 title 不重复)+失败只 warn；inner_thought 多剥 [TODO]。
+- **重启 cheng-backend 一次**(澄失忆)。验证：澄写了一条 TODO，落库 source=claude，WORLD_CHOICE 照常，没污染小心思。
+
+> transcript 关键词(root CC)：`[TODO]`、`phone_todos_cheng`、`澄记了待办`。
+
+---
+
 ## 2026-06-07 · [后端] world-home 第 9 步：小手机消息接口 /api/world/phone/messages（改 index.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「第 9 步：小手机基础版（消息/待办/小心思）」(/root/world-home/CHANGELOG.md, 2026-06-07)。表/前端/全貌看那条。
