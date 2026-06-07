@@ -15,6 +15,19 @@
 
 ---
 
+## 2026-06-07 · [后端] world-home 10B：随机事件引擎（新 world-random-events.js + 改 index.js/world-tick.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「10B：随机事件引擎（最小版，6 个生活事件）」(/root/world-home/CHANGELOG.md, 2026-06-07)。事件清单/验收看那条。
+
+- `world-random-events.js`(新)：6 事件 + detectRandomEvent(全局限频1次/现实小时+概率+资格) + markRandomEventFired(真发出才标记) + forceRandomEvent + onMidnightCross + bumpRandomTick。
+- `world-tick.js`：daemon 加 detectRandom/onMidnight/bumpTick 注入；优先级 hungry>random(hungry 没命中才轮)；跨午夜清 once_per_day。
+- `index.js`：tick 接随机事件(fired 后才 mark)；settlement 支持选项内联 target_location/activity；唤醒包加日期/星期；下班下雨读 world_environment 天气；路由 POST /api/world/random(force) + GET /api/world/random/list。复用现有 worldWake turn_done 链(标签解析一套)。
+- **重启 cheng-backend 一次**(澄失忆)。验证：下午犯困/下班下雨 force 跑通(effects/移动/timeline/WORLD_MESSAGE)；CC 忙→409 cc_busy 不崩。
+
+> transcript 关键词(root CC)：`world-random-events`、`forceRandomEvent`、`detectRandomEvent`、`/api/world/random`。
+
+---
+
 ## 2026-06-07 · [后端][基建] world-home 10A：天气读取+粗描述（world-env.js + AMAP key 移出 memory-backend，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「10A：小世界日期/天气同步现实（weather-fetcher）」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌/weather-fetcher 细节看那条。
