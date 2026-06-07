@@ -15,6 +15,19 @@
 
 ---
 
+## 2026-06-07 · [后端] world-home 10C：world-effects 全局结算器 + 事件迁移 effects_hint（新 world-effects.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「10C：effects_hint + resolveEffects 全局状态结算器」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌/验收看那条。
+
+- `world-effects.js`(新)：resolveEffects(strength tiny1-3/small4-7/medium8-13/large14-20 roll + 当前状态轻微修正 + direction 正负) + computeDeltas/applyDeltas(0-100钳位/wallet封底0) + STAT_NAMES_CN + buildEffectContext。Claude 只选编号、不决定数值。
+- 迁移 effects_hint：world-actions.js(ACTIONS 吃零食/点外卖/做饭/洗澡/休息)、world-random-events.js(6事件)、hungry(走ACTIONS)；钱包扣费保留固定 effects。
+- index.js + world-actions.js 结算统一走 computeDeltas/applyDeltas；timeline detail 记 effects_hint/resolved/fixed；老 effects 兼容。
+- **重启 cheng-backend 一次**(澄失忆)。验证：洗澡/点外卖/下午犯困 resolved 浮动、固定金额、中文展示、detail 三段齐。
+
+> transcript 关键词(root CC)：`world-effects`、`resolveEffects`、`effects_hint`、`computeDeltas`。
+
+---
+
 ## 2026-06-07 · [后端] world-home world_time 校正：syncWorldTimeToRealTime + /api/world/sync-time（改 world-tick.js/index.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「world_time 卡 14:30 → 手动校正 + 同步现实时间按钮」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌看那条。
