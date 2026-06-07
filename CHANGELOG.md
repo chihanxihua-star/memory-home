@@ -15,6 +15,19 @@
 
 ---
 
+## 2026-06-07 · [后端] world-home 11B：world-work-events 工作事件接 10B 引擎（新 world-work-events.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「11B：工作随机事件 + NPC 过场（最小版，8 事件）」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌/验收看那条。
+
+- `world-work-events.js`(新)：8 工作事件(会议/同事求助/福利/新品/闲聊/下班前加任务/午休/茶水间补货)，全 effects_hint + npc/npcPool/workday_only/activity_in/time_ranges/wmHint/npc_boost + 选项 start_overtime/meet_request/item。
+- 接 `world-random-events.js`：并入 ALL_EVENTS 同一池/唤醒系统；eligible 加工作日+活动白名单+多时段；NPC 过场提权(当天没出现+13-16 概率×2)；仍受全局限频。pack 解析 npcPool→npc + wmHint。listEvents 返 {random,work}。
+- `index.js`：prompt 加「在场:npc」+ **wmHint 条件引导**(普通工作事件不主动提醒 WORLD_MESSAGE，福利/新品/午休/下班前才提；约见给专门出口)；结算 detail 记 event_type/npc/item；start_overtime→scheduleOvertimeEnd(11A加班)；meet_request→排 pending 超时 firePendingWake 自处理(不engage/不改user)。world-workday 导出 scheduleOvertimeEnd。
+- **重启 cheng-backend 一次**(澄失忆)。验证：会议(npc老板/无wmHint/event_type)、福利(wmHint有/item/npc老板) force 跑通。
+
+> transcript 关键词(root CC)：`world-work-events`、`npc_boost`、`meet_request`、`start_overtime`、`wmHint`。
+
+---
+
 ## 2026-06-07 · [后端] world-home 11A：world-workday 作息/工资/加班（新 world-workday.js + work_profile_cheng，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「11A：工作日作息 + 工资 + 加班（最小版）」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌/验收看那条。
