@@ -15,6 +15,17 @@
 
 ---
 
+## 2026-06-07 · [后端] world-home 第 9 步：小手机消息接口 /api/world/phone/messages（改 index.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「第 9 步：小手机基础版（消息/待办/小心思）」(/root/world-home/CHANGELOG.md, 2026-06-07)。表/前端/全貌看那条。
+
+- `index.js` 加 `GET /api/world/phone/messages`：只返 `event='world_message'` 最近20条（time/content/event）。**目的：不让 world-home 前端直接读 messages 表**（聊天主表含普通聊天/phone_chat），由后端过滤只给主动手机消息。待办(phone_todos_cheng)和小心思(world_inner_thoughts_cheng)前端直接读写 Supabase，不经后端。
+- **重启 cheng-backend 一次**（澄失忆）。验证接口只返 world_message、不漏 phone_chat。
+
+> transcript 关键词(root CC)：`/api/world/phone/messages`、`world_message 过滤`。
+
+---
+
 ## 2026-06-07 · [后端] world-home 第 8 步：world-actions 行为结算（新 world-actions.js + 改 index.js/world-tick.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「第 8 步：基础地点 + 行为结算系统」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌/验收看那条。
