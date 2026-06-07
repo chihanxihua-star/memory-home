@@ -15,6 +15,19 @@
 
 ---
 
+## 2026-06-07 · [后端] world-home world_time 校正：syncWorldTimeToRealTime + /api/world/sync-time（改 world-tick.js/index.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「world_time 卡 14:30 → 手动校正 + 同步现实时间按钮」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌看那条。
+
+- world_time 一直停 14:30(world_tick_enabled 关)。先纯 SQL 把澄下班(20:10/家·客厅,不 engage)。
+- `world-tick.js` 加 `syncWorldTimeToRealTime()`：world_time 同步到当前 Asia/Shanghai HH:mm，只动 world_time，不读城市、不动天气/date、不 engage 澄。
+- `index.js` 加路由 `POST /api/world/sync-time`。前端 DevPanel 按钮 + StatusBar「世界时钟暂停」提示(tick 关时)。
+- **没把 world_time 改成真实时间驱动**(只手动校正/按钮)；fast_test 保留。**重启 cheng-backend 一次**(澄失忆)。
+
+> transcript 关键词(root CC)：`syncWorldTimeToRealTime`、`/api/world/sync-time`、`world_time 卡14:30`。
+
+---
+
 ## 2026-06-07 · [后端] world-home 10B：随机事件引擎（新 world-random-events.js + 改 index.js/world-tick.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「10B：随机事件引擎（最小版，6 个生活事件）」(/root/world-home/CHANGELOG.md, 2026-06-07)。事件清单/验收看那条。
