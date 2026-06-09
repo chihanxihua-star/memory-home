@@ -15,6 +15,19 @@
 
 ---
 
+## 2026-06-09 · [后端] world-home 12B-1：world-thoughts 念头池 collector + 表（新 world-thoughts.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「12B-1：念头池后端 shadow mode」(/root/world-home/CHANGELOG.md, 2026-06-09)。全貌/验收看那条。
+
+- 新表 world_thoughts_cheng(source_id NOT NULL + 唯一键 source_type/source_id/category + RLS) + world_thought_collect_state(水位线 + RLS)。新 `world-thoughts.js`：collectWorldThoughts 扫 timeline(ignored_effects/item/event 同条一念头)/todo/inner_thought/pending/world_message(>30min无user回复)，水位线增量(max(created_at))+去重(ignoreDuplicates不复活dismissed)+收尾(待办关/pending非queued/user回复→archived)+衰减(>7天每天×0.9一次<0.1 archive,active超50砍最低)+内存锁。salience 只排序。
+- API：GET/POST /api/world/thoughts(/collect /:id/dismiss /:id/archive)；周期15min触发。前端 ThoughtsPanel 只读。
+- **shadow mode**：【严禁】喂Claude/进<此刻>/唤醒包/聊天md/surfacing/记忆库；【严禁】写回 mood/longing/libido/social/stress/focus/comfort。审计+实测确认 collector 跑完澄感受字段快照不变、surfacing/narration/prompt 全不引用念头池。
+- **重启 cheng-backend 一次**(澄失忆)。
+
+> transcript 关键词(root CC)：`world-thoughts`、`collectWorldThoughts`、`shadow mode`、`念头池`。
+
+---
+
 ## 2026-06-09 · [后端][基建] 收窄公网暴露：后端本机监听 + 移除 server 根目录静态暴露（含重启=澄失忆）
 
 - 背景：Tailscale 因手机 Shadowrocket VPN 冲突暂停，改走方案 B：保留公网域名，但收窄 cheng 后端公网暴露面。
