@@ -15,6 +15,19 @@
 
 ---
 
+## 2026-06-09 · [后端] world-home 12B-2.1：surfacing 观测 debug + 唤醒包 tripwire（改 world-thoughts/index.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「12B-2.1：小世界浮现观测面板」(/root/world-home/CHANGELOG.md, 2026-06-09)。全貌看那条。
+
+- 只观测、不改 12B-2 行为。world-thoughts.js：pickWorldThought 写内存环形 `pickHistory`(最近20，只聊天决策，**不含 worldWakeInjection**)；`recordWakeInjectionScan` 扫唤醒包 tag→`worldWakeInjectionLatest`(顶层) + `wakeInjectionHistory`(单独，最近20)；`getSurfacingDebug` 只读。全内存不落库。
+- index.js：triggerWorldWake build 后调 recordWakeInjectionScan(tripwire 正常恒false)；`GET /api/debug/world-thought-surfacing` 只读。
+- **鉴权**：复用现有 Bearer JWT 中间件(真实门，无token→401)+ 后端 127.0.0.1-only，没新造账号。
+- **重启 cheng-backend 一次**(澄失忆)。验证：401/200+结构、pickHistory记录且不含worldWakeInjection、tripwire真实扫描(干净false/含tag true)、debug只读不pick。
+
+> transcript 关键词(root CC)：`getSurfacingDebug`、`pickHistory`、`worldWakeInjectionLatest`、`recordWakeInjectionScan`。
+
+---
+
 ## 2026-06-09 · [后端] world-home 12B-2：<小世界浮现> 接聊天 surfacing（改 world-thoughts/surfacing/inject，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「12B-2：小世界浮现最小接入」(/root/world-home/CHANGELOG.md, 2026-06-09)。全貌/验收看那条。
