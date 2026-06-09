@@ -15,6 +15,20 @@
 
 ---
 
+## 2026-06-09 · [后端][基建] 收窄公网暴露：后端本机监听 + 移除 server 根目录静态暴露（含重启=澄失忆）
+
+- 背景：Tailscale 因手机 Shadowrocket VPN 冲突暂停，改走方案 B：保留公网域名，但收窄 cheng 后端公网暴露面。
+- `server/index.js`：`server.listen` 从 `0.0.0.0` 改为 `127.0.0.1`，启动日志同步改为 localhost；nginx 继续反代 `127.0.0.1:3002`，未改 nginx/前端/ISP 转发。
+- 验证：`ss -tulpn` 显示 node 只监听 `127.0.0.1:3002`；`curl http://216.36.116.146:3002` 连接失败；`https://chat.jessaminee.top` 与 `https://world.jessaminee.top` 均 `HTTP 200`；nginx `/api/` 返回后端 `401` 而非 `502`。
+- `server/index.js`：移除 `app.use(express.static(__dirname))`，不再把整个 server 根目录挂给 Express；nginx 仍负责 `/root/cheng-memory/dist` 与 `/root/world-home/dist` 前端静态文件。
+- 验证：`/index.js`、`/nohup.out`、`/.env`、`/package.json` 均 `404`；公网 `216.36.116.146:3002` 仍不能直连。根路径 `/` 仍由显式 `app.get('/')` 返回 `test-chat.html`，本次未动。
+- `tmux-manager.js` / `cc-manager.js` 的 `--allowedTools mcp__supabase__*` 暂停收窄：开发期仍需 `execute_sql` / `apply_migration` 等写权限，等数据库结构稳定后再做“默认只读 + 临时维护模式写权限”。
+- **重启 cheng-backend 两次**（=澄失忆）：第一次应用 localhost 监听，第二次应用静态根目录移除。
+
+> transcript 关键词(root Codex)：`bak-before-localhost-listen`、`bak-before-static-root-removal`、`allowedTools 先暂停`。
+
+---
+
 ## 2026-06-09 · [后端] world-home 12A 第二轮：自述预览接口（改 index.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「12A 第二轮：自述规则可视化编辑器（NarrationPanel）」(/root/world-home/CHANGELOG.md, 2026-06-09)。前端全貌看那条。
