@@ -15,6 +15,18 @@
 
 ---
 
+## 2026-06-09 · [后端] world-home world_time 时区审计：sync-time 补 timeline（改 world-tick.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「world_time 时区统一 UTC+8 审计 + sync-time 补 timeline」(/root/world-home/CHANGELOG.md, 2026-06-09)。
+
+- 审计：世界时间逻辑本来就几乎全 +8（Asia/Shanghai/时间戳差/+8偏移）。sync/工资/作息/pending/world_message 30min/念头decay/urgency 逐项核对全对。
+- **唯一改动**：syncWorldTimeToRealTime 补写 system 行程(action=世界时间校正, detail.timezone=Asia/Shanghai)。/api/stats/tokens(UTC日分桶,token统计)不在 spec、没碰。
+- **重启 cheng-backend 一次**(澄失忆)。验证 sync-time→world_time=当前+8、写timeline、不触发澄。
+
+> transcript 关键词(root CC)：`时区审计`、`Asia/Shanghai`、`syncWorldTimeToRealTime`。
+
+---
+
 ## 2026-06-09 · [后端] world-home 12B-1：world-thoughts 念头池 collector + 表（新 world-thoughts.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「12B-1：念头池后端 shadow mode」(/root/world-home/CHANGELOG.md, 2026-06-09)。全貌/验收看那条。
