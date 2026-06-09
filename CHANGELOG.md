@@ -15,6 +15,19 @@
 
 ---
 
+## 2026-06-09 · [后端] world-home 12B-2：<小世界浮现> 接聊天 surfacing（改 world-thoughts/surfacing/inject，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「12B-2：小世界浮现最小接入」(/root/world-home/CHANGELOG.md, 2026-06-09)。全貌/验收看那条。
+
+- 念头池第一次进 Claude prompt：**只聊天 surfacing 一条通道、最多 1 条**。world-thoughts.js 加 `pickWorldThought`(active→denylist过滤打日志→10min内存防重复→取最高1条只返事实content)；surfacing.js surfaceForInject 返 worldThought；inject.js 在 <此刻>后 <记忆浮现>前 插 `<小世界浮现>` 块。
+- **只读不改状态**(不 dismiss/archive)；denylist 命中打 `[thought-surfacing] filtered` 日志(回头修 collector content 的信号，不一直加词)。
+- **严禁**：不进世界唤醒包/<此刻>内部/<记忆浮现>/长期记忆库；不更新 mood/longing/libido/social/stress/focus/comfort。
+- **重启 cheng-backend 一次**(澄失忆)。验证：聊天块 此刻→小世界浮现→记忆浮现、唤醒包无、10min不重复、脏content过滤打日志状态不变。
+
+> transcript 关键词(root CC)：`pickWorldThought`、`<小世界浮现>`、`thought-surfacing filtered`。
+
+---
+
 ## 2026-06-09 · [后端] world-home world_time 时区审计：sync-time 补 timeline（改 world-tick.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「world_time 时区统一 UTC+8 审计 + sync-time 补 timeline」(/root/world-home/CHANGELOG.md, 2026-06-09)。
