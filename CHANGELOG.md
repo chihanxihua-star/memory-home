@@ -15,6 +15,18 @@
 
 ---
 
+## 2026-06-09 · [后端] world-home 12A 第二轮：自述预览接口（改 index.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「12A 第二轮：自述规则可视化编辑器（NarrationPanel）」(/root/world-home/CHANGELOG.md, 2026-06-09)。前端全貌看那条。
+
+- `index.js` 加 `GET /api/world/self-narration/preview`：复用 generateChengSelfNarration（预览=实际，不另写一套）；可选 query energy/satiety/cleanliness/health 临时覆盖（只预览不写库）。
+- 规则 loadNarrationRules 实时读表**无缓存** → CRUD 保存即生效，无需清缓存/重启。
+- **重启 cheng-backend 一次**(澄失忆，仅因新预览接口；CRUD 第一轮已 live)。前端 NarrationPanel 在 world-home。
+
+> transcript 关键词(root CC)：`self-narration/preview`、`NarrationPanel`。
+
+---
+
 ## 2026-06-09 · [后端] world-home 12A：world-narration 统一<此刻> + effects 止血（新 world-narration.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「12A：身体/环境自述 + <此刻>共用 + 旧感受字段止血」(/root/world-home/CHANGELOG.md, 2026-06-09)。全貌/验收看那条。
