@@ -15,6 +15,20 @@
 
 ---
 
+## 2026-06-09 · [后端] world-home 12A：world-narration 统一<此刻> + effects 止血（新 world-narration.js，含重启=澄失忆）
+
+> 🔗 对应：world-home 仓「12A：身体/环境自述 + <此刻>共用 + 旧感受字段止血」(/root/world-home/CHANGELOG.md, 2026-06-09)。全貌/验收看那条。
+
+- 新表 world_self_narration_phrases/templates(seed 6短语+3模板)。新 `world-narration.js`：generateChengSelfNarration + buildNowInner(澄第一人称身体/环境自述 + 小茉莉第三人称，**聊天md+唤醒包共用**)；只用 energy/satiety/cleanliness/health+location/activity/time/date，不读数字/感受字段；formatNaturalLocation 修「在家·家·卧室」双家。
+- surfacing.js + index.js buildWorldWakePrompt 都改用 buildNowInner；唤醒包去掉数字状态行(不开放整包编辑保解析链)。
+- **止血**：world-effects.js computeDeltas 只结算 energy/satiety/cleanliness/health(+wallet)，mood/longing/libido/social/stress/focus/comfort 不更新状态、原始方向进 timeline.detail.ignored_effects；world-tick.js 停 longing+1。不 drop 列/不迁移。
+- CRUD API：/api/world/narration(GET) + /phrase + /template(POST/PATCH)。world-home 编辑器 UI 留第二轮。
+- **重启 cheng-backend 一次**(澄失忆)。验证 <此刻> 第一人称无数字无感受、临时会议不改感受字段+记 ignored_effects。
+
+> transcript 关键词(root CC)：`world-narration`、`buildNowInner`、`ignored_effects`、`computeDeltas 止血`。
+
+---
+
 ## 2026-06-07 · [后端] world-home 11B：world-work-events 工作事件接 10B 引擎（新 world-work-events.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「11B：工作随机事件 + NPC 过场（最小版，8 事件）」(/root/world-home/CHANGELOG.md, 2026-06-07)。全貌/验收看那条。
