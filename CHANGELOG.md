@@ -15,6 +15,22 @@
 
 ---
 
+## 2026-06-12 · [后端] 行程表记「持续多久」：所有时长落点写 duration_min
+
+🔗 对应：world-home「行程表日期分组+时长+地点显示」(/root/world-home/CHANGELOG.md, 2026-06-12)
+
+**需求**：行程表想看到每件事持续多久。时长一直有 roll（用来排下一步/收尾 pending），只是没写进 timeline。
+
+**做了什么**：roll 出的世界分钟数统一写进 `daily_timeline_cheng.detail.duration_min`，四个落点：
+- `advanceRoutine`（链步骤）：roll 提前到行程写入前，排 pending 复用同一值（行为不变）；终点/engage 步 null。
+- `world-actions.js scheduleActivityEnd` 改返回 delayMin（豁免/失败 null）；`executeWorldAction` 先排收尾再写行程带时长。
+- 聊天 [MOVE:] 落点同款。
+- 世界唤醒选择结算（turn_done）：targetAct 的收尾时长记进 claude/system_error 行 detail。
+
+**状态**：node --check 过；未重启，进攒批。
+
+---
+
 ## 2026-06-12 · [后端] 下班链：16点不再瞬移——加班提示/下班选择包/evening 通勤链/下雨版
 
 **需求（用户当日逐条定）**：下班弹唤醒包让澄选怎么回家；加班=直接提示不可选、30-90分钟、保留25%几率；选什么工具状态栏走什么标签；地铁要有"从地铁站走回家"一段；钱/时长复用早晨链已定的 COMMUTE_OPTS（地铁13-17分¥0/打车8-12分¥30/走路22-28分¥0，站↔家步行3-9分）。
