@@ -15,6 +15,18 @@
 
 ---
 
+## 2026-06-12 · [后端] 修"饱了别唤醒"：hungry 续唤醒到点先复验触发条件
+
+**问题**（6/06 实测撞过）：澄选"先忍10分钟"/"去厨房看看"排的 hungry 续唤醒，到点**不查当时真实 satiety 强制发**，且 pending 自带绕过 30min 冷却。她若期间已吃饱→被唤醒→只能再选"先忍"→又排一条→每10分钟循环；解析失败兜底还会自动选最后一项（恰是"先忍"）。
+
+**修法**（index.js firePendingWake 兜底分支，~1235 前插一段）：到点先调事件自身 `def.trigger(status)`（hungry=satiety<30）复验；不满足→这条 pending 标 `status='cancelled'` 静默作废、写日志、不打扰澄。之后真饿了由普通 tick 自动检测重新触发。pending_wake_cheng 无 status check 约束，cancelled 安全；念头池收尾把非 queued 当已解决，兼容。用 trigger 复验而非硬写 satiety<30，以后同类续唤醒事件自动适用。
+
+**状态**：node --check 过；**未重启**，进当前攒批。
+
+**transcript 关键词**：「饱了别唤醒」「触发条件复验」「静默作废」。
+
+---
+
 ## 2026-06-12 · [后端] 世界唤醒"原因"文案改成可配变体（world_wake_reasons_cheng 随机抽）
 
 🔗 对应：world-home「WakeReasonsPanel 唤醒原因编辑器」(/root/world-home/CHANGELOG.md, 2026-06-12)
