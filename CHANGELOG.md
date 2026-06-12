@@ -15,6 +15,24 @@
 
 ---
 
+## 2026-06-12 · [后端] 下班链：16点不再瞬移——加班提示/下班选择包/evening 通勤链/下雨版
+
+**需求（用户当日逐条定）**：下班弹唤醒包让澄选怎么回家；加班=直接提示不可选、30-90分钟、保留25%几率；选什么工具状态栏走什么标签；地铁要有"从地铁站走回家"一段；钱/时长复用早晨链已定的 COMMUTE_OPTS（地铁13-17分¥0/打车8-12分¥30/走路22-28分¥0，站↔家步行3-9分）。
+
+**做了什么**：
+- `world-workday.js`：加班时长 30-120→**30-90**；`offWorkDecision` 重写——骰中25%加班→startOvertime+**提示型唤醒**（overtime_notice，单确认项"知道了，继续干"，CC忙就不提示加班照走）；没骰中→排 `offwork_choice` pending（daemon 自带 cc_busy 重试）。`endOvertime` 不再瞬移：发¥30加班费+activity"收拾东西准备回家"→走 evening 链（雨天自动打车不再问）。钩子 `setOffWorkHandler/setEveningStarter` 由 index.js 注入（避免循环依赖），没注入/出错退回旧瞬移保底。
+- `index.js`：新链 `buildEveningRoutine(cm)`——subway=坐地铁(13-17)→从地铁站走回家(3-9)→家·客厅"下班回家后休息"；taxi/walk 直达。firePendingWake 新分支 `offwork_choice`：人不在公司=作废；现读 `isRainingNow()`（world_environment_cheng.weather_text 含"雨"，weather-fetcher 45分钟一更）→ 晴=①坐地铁②走路 / 雨=①打车¥30②地铁淋一段(掉清洁small+体力tiny)③在公司等雨小一点(排25分钟 offwork_choice pending，payload.waited=true，第二次不再给"等"防循环)。选项走现成 start_routine/routine_opts 钩子进链。
+- `world-random-events.js`：**rain_offwork（下班下雨）整个删除收编**——由下班链雨天版接管，不再跟系统下班判断穿帮；DevPanel force 列表动态拉会自动少这个。
+- 变体表补 3 个新事件默认文案：offwork_choice / offwork_choice_rain / overtime_notice。
+
+**已知边界**：选择解析失败时兜底选项不执行 start_routine（通用 guard），她会留在公司不动——跟早晨链解析失败留床上同款，罕见，暂不专修。早晨通勤的"下雨/赶时间偏移打车"**仍没做**（这次只做了下班侧+加班结束自动偏移）。
+
+**状态**：三文件 node --check 过；**未重启**，进攒批。测试路径：DevPanel 的 off_decision force 按钮（骰子）/ 手动插 offwork_choice pending。
+
+**transcript 关键词**：「buildEveningRoutine」「offwork_choice」「overtime_notice」「从地铁站走回家」。
+
+---
+
 ## 2026-06-12 · [后端] 修"饱了别唤醒"：hungry 续唤醒到点先复验触发条件
 
 **问题**（6/06 实测撞过）：澄选"先忍10分钟"/"去厨房看看"排的 hungry 续唤醒，到点**不查当时真实 satiety 强制发**，且 pending 自带绕过 30min 冷却。她若期间已吃饱→被唤醒→只能再选"先忍"→又排一条→每10分钟循环；解析失败兜底还会自动选最后一项（恰是"先忍"）。
