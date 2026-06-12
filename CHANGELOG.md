@@ -29,7 +29,7 @@
 
 **状态**：三文件 node --check 过；**未重启**，进攒批。测试路径：DevPanel 的 off_decision force 按钮（骰子）/ 手动插 offwork_choice pending。
 
-**追加（同日）**：①公司侧步行补全（仅地铁版，跟家侧 3-9 对称）——早晨链坐地铁后插「从地铁站走到公司 3-9」（cook/buy 两条都加），下班链坐地铁前插「从公司走到地铁站 3-9」；打车/走路门到门不变。②上班时间 9:00→9:10：workdayTick 上班窗 540→550、computeIdleState 上班时段同步 550。
+**追加（同日）**：①公司侧步行补全（仅地铁版，跟家侧 3-9 对称）——早晨链坐地铁后插「从地铁站走到公司 3-9」（cook/buy 两条都加），下班链坐地铁前插「从公司走到地铁站 3-9」；打车/走路门到门不变。②上班时间 9:00→9:10：workdayTick 上班窗 540→550、computeIdleState 上班时段同步 550。③**雨天通勤时长**（用户定）：地铁 13-17→雨28-42（+15-25）、打车 8-12→雨13-22（+5-10）、走路晴天基准 22-28→**35-46**、雨55-71（+20-25）。实现=`COMMUTE_RAIN_DUR`+`commuteStep(cmKey,rain)`；rain 在链启动时定一次（start_routine 钩子统一 `isRainingNow()`，offwork 选项/加班结束 eveningStarter 也带），随 opts→routine_step payload→continue_routine 全链透传保证确定重建；站↔家/公司步行段不加成；午休链无通勤步不受影响。早晨链也吃到雨天时长（但"早晨下雨改打车的 engage 偏移"仍未做，她雨天还是默认坐地铁、只是更慢）。
 
 **transcript 关键词**：「buildEveningRoutine」「offwork_choice」「overtime_notice」「从地铁站走到公司」。
 
