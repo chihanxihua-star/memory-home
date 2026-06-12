@@ -29,7 +29,7 @@
 
 **状态**：三文件 node --check 过；**未重启**，进攒批。测试路径：DevPanel 的 off_decision force 按钮（骰子）/ 手动插 offwork_choice pending。
 
-**追加（同日）**：①公司侧步行补全（仅地铁版，跟家侧 3-9 对称）——早晨链坐地铁后插「从地铁站走到公司 3-9」（cook/buy 两条都加），下班链坐地铁前插「从公司走到地铁站 3-9」；打车/走路门到门不变。②上班时间 9:00→9:10：workdayTick 上班窗 540→550、computeIdleState 上班时段同步 550。③**雨天通勤时长**（用户定）：地铁 13-17→雨28-42（+15-25）、打车 8-12→雨13-22（+5-10）、走路晴天基准 22-28→**35-46**、雨55-71（+20-25）。实现=`COMMUTE_RAIN_DUR`+`commuteStep(cmKey,rain)`；rain 在链启动时定一次（start_routine 钩子统一 `isRainingNow()`，offwork 选项/加班结束 eveningStarter 也带），随 opts→routine_step payload→continue_routine 全链透传保证确定重建；站↔家/公司步行段不加成；午休链无通勤步不受影响。早晨链也吃到雨天时长（但"早晨下雨改打车的 engage 偏移"仍未做，她雨天还是默认坐地铁、只是更慢）。
+**追加（同日）**：①公司侧步行补全（仅地铁版，跟家侧 3-9 对称）——早晨链坐地铁后插「从地铁站走到公司 3-9」（cook/buy 两条都加），下班链坐地铁前插「从公司走到地铁站 3-9」；打车/走路门到门不变。②上班时间 9:00→9:10：workdayTick 上班窗 540→550、computeIdleState 上班时段同步 550。③**雨天通勤时长**（用户定）：地铁 13-17→雨28-42（+15-25）、打车 8-12→雨13-22（+5-10）、走路晴天基准 22-28→**35-46**、雨55-71（+20-25）。实现=`COMMUTE_RAIN_DUR`+`commuteStep(cmKey,rain)`；rain 在链启动时定一次（start_routine 钩子统一 `isRainingNow()`，offwork 选项/加班结束 eveningStarter 也带），随 opts→routine_step payload→continue_routine 全链透传保证确定重建；站↔家/公司步行段不加成；午休链无通勤步不受影响。④**早晨下雨改打车 engage**（跟下班雨天版同款）：雨天早晨链在出门步前插 `engage:'rain_commute'`（cook=吃完早餐在家·客厅"准备出门"，buy=挑完早餐在便利店"准备去公司"），弹「打车去公司¥30 / 坐地铁淋一段(掉清洁small+体力tiny)」，选完 continue_routine 带新 cm 重建链。**坑已防**：雨天 engage 步无论 cm 都留在数组里保链形状（选打车后用 cm=taxi 重建，engage 步若消失 next_index 错位跳过通勤步）；"已是打车不用问"在 fireRoutineEngage 里返回 false 让链自动继续。CC 忙没弹成=照走默认地铁雨天时长。变体表补 morning_rain_commute。至此**通勤下雨/赶时间偏移整项完成**（"赶时间"维度没做，用户没再提）。
 
 **transcript 关键词**：「buildEveningRoutine」「offwork_choice」「overtime_notice」「从地铁站走到公司」。
 
