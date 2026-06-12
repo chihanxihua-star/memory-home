@@ -15,6 +15,315 @@
 
 ---
 
+## 2026-06-12 · [后端] 世界唤醒"原因"文案改成可配变体（world_wake_reasons_cheng 随机抽）
+
+🔗 对应：world-home「WakeReasonsPanel 唤醒原因编辑器」(/root/world-home/CHANGELOG.md, 2026-06-12)
+
+**需求**：唤醒包的"原因"句之前全是代码里写死的固定文案，用户想像 <此刻> 自述那样可编辑、有变化。只改"原因"这句；选项/effects 是大头以后大改（点外卖等选项还没定完）。
+
+**做了什么**：
+- 新表 `world_wake_reasons_cheng`（migration `create_world_wake_reasons_cheng`）：event_key + label + text + enabled，RLS 全开。已把全部 21 个事件的现有固定文案各灌一条当默认变体。
+- `index.js`：新增 `pickWakeReason(eventKey, fallback)`——按 event_key 抽一条启用的变体（多条随机），表里没有/读失败退回代码默认。接入点在 `triggerWorldWake`（**await 放在 check-and-set activeTurn 之前，原子性没破**），所有 engage 澄的唤醒（hungry/随机/工作/日常流程）统一生效；pending 续唤醒的"补充"行走 pendingContext 参数，不受影响。
+- CRUD：GET/POST `/api/world/wake-reasons`、PATCH/DELETE `/api/world/wake-reasons/:id`（照 narration 编辑器的套路，多了 delete）。
+- 前端编辑面板在 world-home（见对面那条）。
+
+**状态**：`node --check` 过；**未重启 cheng-backend**——变体抽取和 CRUD 接口都要重启才生效（world-home 的编辑面板在重启前会报错，正常）。等用户定重启时机。
+
+**transcript 关键词**：「pickWakeReason」「world_wake_reasons_cheng」「唤醒原因变体」。
+
+---
+
+## 2026-06-12 · [前端] 「我的状态」位置/正在改点选 chips（治键盘跳）+ 候选标签入库跟小世界同步
+
+🔗 对应：world-home「UserStatusPanel 候选标签改读 user_status_options_cheng」(/root/world-home/CHANGELOG.md, 2026-06-12)
+
+**为什么**：弹窗里点输入框必跳——iOS 弹键盘时系统自己平移视口 + 页面 --app-height 压缩 + ChatPanel scrollTo(0,0) 拉回，三方拉扯网页拦不住。顶部卡片、visualViewport 抬升都试过仍跳。最终思路=**让弹窗用不着键盘**：位置/正在 从输入框改成点选 chips，点选不弹键盘就彻底不跳。
+
+**做了什么**：
+- 新表 `user_status_options_cheng`（Supabase migration `create_user_status_options_cheng`）：kind('location'|'activity') + label + sort，unique(kind,label)，RLS 全开 read/insert/delete（照 phone_todos_cheng 的套路），已灌入原硬编码的 9 个位置 + 10 个活动。
+- `cheng-memory/src/ChatPanel.jsx` UserStatusSheet：US_LOCATIONS/US_ACTIVITIES 硬编码删掉改读表；位置/正在=chips 点选（选中深色填充）；「＋」内联输入存自定义标签（upsert ignoreDuplicates，存完自动选中）；「编辑」模式 chips 带 × 点击删标签；备注仍是输入框（可选、用得少，跳一下忍了）。已 build。
+- 同步：world-home UserStatusPanel 的 datalist 候选改成读同一张表（样式没动），聊天里存的新标签小世界立刻可见，反之亦然（小世界没做增删 UI，增删都在聊天端）。
+
+- 追加：标签收藏（migration `user_status_options_add_pinned`：加 pinned 列 + update 策略）。收藏的标签排最前（两端读取都按 pinned desc）；聊天端「编辑」模式重做=点标签切换 ★ 收藏/取消，点尾部 × 才删除（比原来"点了就删"安全）。
+
+**transcript 关键词**：「user_status_options_cheng」「tagGroup」「让弹窗用不着键盘」「togglePin」。
+
+---
+
+## 2026-06-12 · [前端] 「我的状态」弹窗 UI 换涟漪风（只改皮，逻辑不动）
+
+**需求**：聊天页输入栏「我的状态」弹窗（UserStatusSheet）样式参考涟漪板块「新涟漪」表单的 UI，仍保持底部弹窗形式，只改 UI 其他不变。
+
+**做了什么**（`cheng-memory/src/ChatPanel.jsx` 的 `UserStatusSheet` 渲染部分，已 build）：
+- 顶部加涟漪式三段栏：左 CANCEL 文字钮 / 居中「我的状态」标题（letterSpacing 0.22em）/ 右深色 SAVE ✓ 方块钮（替代原底部全宽保存按钮）。
+- 「在家/不在家」从 文字+切换按钮 改成两个 chips（选中=深色填充，同新涟漪的作者 chips），点未选中那个即触发原 togglePresence（仍立即落库）。
+- 位置/正在/备注 输入框从 圆角边框 改成 label 在上 + 下划线式（borderBottom，Georgia/Noto Serif 字体），照抄 MemoryManager 的 labelStyle/underlineStyle。
+- datalist 候选、supabase 读写、保存 toast、onClose 行为全部没动；没动后端。
+- 追加修复：iOS 键盘弹起会把这个 fixed bottom:0 的弹窗遮住；先试过 visualViewport 抬 bottom（去抖+transition）仍然跳——iOS 自己滚页面对焦 + 我们抬弹窗两个动作叠加治不了。最终方案=弹窗从底部 sheet 改成**顶部悬浮卡片**（fixed top+16px、圆角 14、cp-msgIn 淡入），键盘碰不到上半屏，彻底不动。visualViewport 逻辑已删。
+
+**transcript 关键词**：「涟漪式三段顶栏」「UserStatusSheet」「SAVE ✓」「顶部悬浮卡片」。
+
+---
+
+## 2026-06-12 · [前端] 聊天页输入栏加「我的状态」按钮（同步小世界 user_status）
+
+**需求**：用户想在聊天 web 里直接改自己的状态（位置/正在/备注/在不在家），不用跑去 world-home——保存后澄从 <此刻> 里立刻看到。
+
+**做了什么**（`cheng-memory/src/ChatPanel.jsx`，已 build 上线）：
+- 输入栏三个点左边加人形图标按钮 → 底部弹窗 `UserStatusSheet`（复用 cp-plus-sheet 样式）。
+- 弹窗=照搬 world-home `UserStatusPanel`：在家/不在家切换（带默认位置）、位置/正在（datalist 候选）、备注、保存。
+- 数据通路：前端直接 supabase 读写 `user_status_cheng`（同 world-home 的路子，不经后端）→ <此刻> 每条消息现读这张表 → **保存即生效，不用重启任何东西**。
+- 没动后端、没动 world-home；world-home 那边的面板照常可用，两边写同一张表。
+
+**transcript 关键词**：「UserStatusSheet」「我的状态」「us-loc-list」。
+
+---
+
+## 2026-06-12 · [后端] 注入精简：浮现标签瘦身 + <此刻> 去前缀 + [MOVE:] 说明搬进世界唤醒区③
+
+**做了什么**（用户逐条定的格式）：
+- `inject.js`：`<小世界浮现 — 仅你可见的背景…>` / `<记忆浮现 — …>` 两个长标签缩成光秃秃的 `<小世界浮现>` / `<记忆浮现>`，那句"仅你可见、自然融入、别复述别回应"的叮嘱挪进 sysprompt（每条消息省几十 token，规矩在 sysprompt 每轮都在）。
+- `world-narration.js` `buildNowInner`：`澄：现在是…` 去掉「澄：」前缀（自述本来就是第一人称）；`小茉莉：在…` 去冒号变 `小茉莉在…`。聊天 <此刻> 和世界唤醒包共用，两边同时变。
+- sysprompt（**源头=documents_cheng id=96c4f3a9**，文件已同步）：[MOVE:] 说明从 [BARK:] 段后撤掉，进 <世界唤醒区> 新增「③ 聊天专用（世界唤醒里不用）」=MOVE 用法 + 浮现块叮嘱。文案以用户改的版本为准（修了"工位"掉字、首句顺成"换了地方、或开始做另一件事"）。
+- ⚠️ 教训再记一遍：sysprompt 直接改文件会被重启时 syncCCDocs 用表内容覆盖，**必须改表**（=前端"系统提示"框）。
+
+**状态**：代码 node --check 全过；**未重启**。本日三批改动（[MOVE:] 标签、去 [时间标记]、本条）攒着等用户定重启时机一次生效。
+
+**transcript 关键词**：「聊天专用（世界唤醒里不用）」「buildNowInner」「标签精简」。
+
+---
+
+## 2026-06-12 · [后端] 去掉用户消息头上的 [时间标记] 前缀（与 <此刻> 重复）
+
+**为什么**：用户消息发给澄前，隔 ≥15 分钟会在头上缀 `[时间标记：现在…，距上次消息 X 分钟]`（`maybeTimePrefix`）。但 12A 之后**每条**消息都带 `<此刻>` 块（现算 +8 时间），时间信息重复；"距上次多久"用户也不想给了（计时基准还是错的——按用户上一条算而非澄最后回复）。用户拍板：直接去掉。
+
+**改了什么**：`server/index.js` 发送路径（原 `const prefixed = maybeTimePrefix(combinedText, conversation_id)`，~L4055）改为直通 `combinedText`，原行注释保留恢复方法。`maybeTimePrefix` 函数本体（~L594）和 `convLastMsgTime` Map 留着没删，想恢复换回一行调用即可。**未重启，跟 [MOVE:] 一批等用户定时机。**
+
+**transcript 关键词**：「时间标记」「maybeTimePrefix」「距上次消息」。
+
+---
+
+## 2026-06-12 · [后端] 聊天 [MOVE:] 标签：澄聊天里说去哪/做什么，小世界位置真的跟着动
+
+**需求**：聊天时澄说"我去厨房烧个水"，世界状态里她还坐在客厅——位置/行为不跟聊天走。用户要"地点跟着动"。
+
+**做了什么**（`server/index.js` 三处 + sysprompt 一处）：
+- 新函数 `processChatMoveTag(text)`（在 processTodoDoneTags 下方）：解析回复里的 `[MOVE:地点]` / `[MOVE:地点·行为]`，**只认一条回复里最后一个**。地点白名单=7个房间（家·卧室/客厅/厨房/浴室 + 公司·工位/休息室/茶水间），可省"家/公司"前缀（按房间名匹配，两栋楼不重名）；**只许同栋楼移动**（跨楼忽略，下班回家归世界作息管）；当前 location 不带"家/公司"前缀（如通勤路上）也会被同楼校验自然拦掉。
+- 生效=更新 `character_status_cheng` 的 location/activity（没写行为时默认"在{房间}"）+ 写 `daily_timeline_cheng`（source=action, detail.via='chat_move'）+ 复用 `scheduleActivityEnd` 给新行为排自动收尾（自由文本走默认中桶 10-29 世界分钟）。**铁律：只改这两个描述字段，不结算任何数值**（饱腹/钱包等带后果的仍走世界事件/effects 系统，防聊天变作弊通道）。
+- 接线：聊天轮 turn_done 的 `!turn.silent` 块里（processTodoDoneTags 旁）调用 + 从 clean 剥 `[MOVE:...]`（小茉莉看不见标签）；世界唤醒轮的小心思 cleanup 也加了剥 MOVE（聊天专属，世界轮误出现只防泄漏不执行）。
+- 教她：sysprompt 在 [BARK:] 段后新增「## 聊天里移动（[MOVE:...] 标签）」。⚠️ sysprompt 的**源头是 Supabase `documents_cheng`**（doc_type='system_prompt'，=前端"系统提示"框），重启时 syncCCDocs 拉表覆盖写 `cheng-append-sysprompt.md`——直接改文件会被覆盖。本次已写进表（id=96c4f3a9，38852→39254 字）；文件也同步改了（重启后被表内容整体重写，内容一致不重复）。
+
+**状态**：代码已改、`node --check` 过；**还没 restart cheng-backend**（用户定重启时机，重启=澄失忆）。sysprompt 同样要等 claude 新 session 才生效，正好同一次重启全生效。
+
+**顺带定的设计**（用户对话里确认）：聊天移动=自由（白名单内），数值不动；`[USER_MOVE:]`（澄帮小茉莉记位置）这次没做，以后要做同套路。另一条没做先记着：时间标记计时基准想改成"距澄最后回复"（现在按用户上一条消息算），见 root memory `project_pending_backend_fixes.md`。
+
+**transcript 关键词**：「processChatMoveTag」「聊天里移动」「地点跟着动」。
+
+---
+
+## 2026-06-11 · [后端] 中午流程：等小茉莉超时→查回没回→没回弹"中午吃啥"→吃→接休息
+
+**做了什么**：
+- **meet_request 超时处理重写**（原来只静默写"约见超时"，没收尾）：到点先查**小茉莉在这段时间回没回**（`messages` role=user 且 created_at > 本 pending 创建时间≈邀请时刻）。①回了→写"午休见到小茉莉"timeline、不弹吃啥（俩人在聊天里处理午饭）；②没回→engage「小茉莉好像在忙…午休还是得吃点，你想吃啥？」+ 三选项(吃零食/点外卖¥25/去茶水间)。
+- **午休链 `buildLunchRoutine(method)`**（复用早晨那套链机制）：[吃(按method:snack零食[8-15]免费/takeout外卖[13-17]¥25/tearoom茶水间[10-15]免费) → 休息[20-40] → 午休(终点,豁免)]。"吃完接休息"这条小链=用户当初要的"吃完去休息"。
+- 接线：getRoutineSteps 加 'lunch'；advanceRoutine 的 routine_step payload + 透传加 `method`；`start_routine` 钩子支持 `option.routine_opts`(午休带 method；早晨仍读周计划)。lunch_solo 选项=`{start_routine:'lunch', routine_opts:{method}}`。
+
+**验证（真 engage 测了一次）**：插 meet_request（你没回）→ 判"没回"→ 弹「小茉莉好像在忙…你想吃啥」+3选项(<此刻>显示她在休息室等小茉莉、11:47午休)；她选③去茶水间 → 午休链启动「吃东西@茶水间」+排好下一步「休息」(method=tearoom 对) ✓。eat→休息→午休 同早晨链机制可靠。
+
+**注**：她顺手还输出了 [OPEN_TODOS]（开了待办那套，正常工作）。
+
+**transcript 关键词**：「meet_request」「lunch_solo」「buildLunchRoutine」「中午吃啥」。
+
+---
+
+## 2026-06-11 · [后端] 便利店选吃的：buy 链「买早餐」改成 engage（从食物表随机3选 + 选完续链）
+
+**做了什么（早晨链支持"链中间弹选择"了）**：
+- buy 链「买早餐」步从静默(固定¥15)改成 `{ engage:'buy_food', activity:'挑早餐', location:'外出·便利店' }`。
+- **advanceRoutine 支持 engage 步**：进到带 `engage` 的步 → 设状态(在便利店挑早餐)+写行程 → 调 `fireRoutineEngage`，**不排 routine_step**（链在她选完后由 continue_routine 续）。CC 忙没弹成 → 不卡链，直接 advance 到下一步（算没挑）。
+- **`fireRoutineEngage('buy_food')`**：从食物表 `category=便利店成品` Fisher-Yates 随机抽 ≤3 个建选项（每个带 `effects` 扣该商品价 + `continue_routine{routine,next_index,bk,cm}`）+「不买了」兜底 → triggerWorldWake(force)。返回是否真弹了。
+- **`continue_routine` 钩子**（handleWorldWakeTurnDone）：她选完 → `advanceRoutine(下一步)`，链续上。
+
+**验证（真 engage 测了一次）**：推进到买早餐步 → 弹出「①豆浆包子套餐¥6 ②饭团¥5 ③火腿三明治¥8 ④不买了」（随机3+兜底，从食物表来）；她选①豆浆包子（理由很在状态）→ 钱包 2480→2474（扣¥6）+ 续链到「坐地铁」+ 排好下一步「工位吃早餐」✓。engage-在链中间这个最难的机制端到端通。
+
+**6/11 决定：选吃的就保持现状（随机3+engage让她挑），喜好那套先搁置存档，等有空再做。** 存档内容：
+- **喜好/呈现规则（要加字段 `last_chosen_at`/`liked`/`rating` 到 world_items_cheng）**：随机抽3 → 冷却1天(选过隔天不出现，liked绕过) → 按 rating 加权(评分高更易中签，默认3，范围1-5，权重=rating) → 她选了记 last_chosen_at=今天 + 选项里带 food_chosen 让 handleWorldWakeTurnDone 更新。前端 ItemsPanel 加"喜欢"勾选+评分输入。不够3个就放宽冷却。
+- **"花token vs 多选"讨论结论**：她当场亲自选=必花token(大头=叫醒+读+想+回，躲不掉)。三条绕法存着：①一次多列几个选项(3→6，几乎免费，让单次菜单更丰富) ②把"选"前置成偏好(rare/前端设)+系统每天静默按 rating/冷却 自动换早饭(0 token、有变化、她不亲选) ③混合(平时静默自动、偶尔随机弹一次让她真挑)。`rating`/`liked`/冷却 字段对"②静默加权挑"和"engage时加权"两用。用户当前选：保持 engage 现状，以上都先不做。
+
+**还没做（别的方向）**：通勤下雨/赶时间改打车、下班那套、中午那套（等小茉莉→吃饭→休息）。
+
+**transcript 关键词**：「buy_food」「fireRoutineEngage」「continue_routine」「engage 步」。
+
+---
+
+## 2026-06-11 · [后端][数据] v1 冰箱/库存（world_fridge_cheng）+ cook 早餐从冰箱消耗成品
+
+🔗 对应：world-home「冰箱表 + FridgePanel」(`/root/world-home/CHANGELOG.md`, 2026-06-11)
+
+**做了什么（v1=成品份数级，先不抠食材/菜谱=留 v2）**：
+- **新表 `world_fridge_cheng`**：`item_name/kind(prepped成品|ingredient食材,v1只用prepped)/quantity份数/expiry_date到期日/note`。RLS 放行（前端 FridgePanel 直连）。塞示例「煎蛋三明治×5，6/16到期」。
+- **`consumePrepped()`**：吃一份——先删过期（expiry_date<今日，Asia/Shanghai），再按"最快到期"取一条 qty-1（扣到0删行）。返回成品名；没货返回 null。
+- **cook 链「在家吃早餐」步加 `consume_prepped:true`**：advanceRoutine 进该步时调 consumePrepped——有现成的→activity「吃早餐」+库存-1；没货→兜底 activity「随便吃了点」。**buy 不走冰箱**（买的）。
+- ⚠️ 关键修正：advanceRoutine 里 timeline/log/**next pending 的 expected_activity 都改用实际 act**（不是 step.activity）——否则"随便吃了点"兜底时，下一步 routine_step 的防串档 guard 会因 expected 对不上而断链。
+
+**验证**（确定性）：冰箱5份，推进到 cook 吃早餐步 → 她「吃早餐」+ 冰箱「煎蛋三明治 5→4」✓；清空冰箱再走 → 她「随便吃了点」✓。测后冰箱复位5、她复位闲着。
+
+**v1 闭环已补齐（同日续做）**：周末"自己做"→选菜→预制→自动入冰箱这条 engage 链做完了：
+- weekend_plan ①自己做 选项加 `pending:{wake_type:'cook_prep'}` → 选完早饭计划紧接着问"做点啥"。
+- `cook_prep` firePendingWake 分支：从食物表 `category=早餐` 列出菜当选项（已塞煎蛋三明治¥15/蔬菜瘦肉粥¥12/牛奶燕麦杯¥10），每个选项带 `effects`(备料扣钱) + `target_activity:预制早餐` + `pending:{wake_type:'prep_done', payload_extra:{dish,qty:5,shelf}}`（预制 30-50 世界分钟）。
+- `prep_done` 分支：成品 ×5 入冰箱（expiry=今日+shelf，Asia/Shanghai）+ 她回闲着。静默。
+- 「预制早餐」加进 world-actions.js 的 `ACTIVITY_EXEMPT`（由 prep_done 收尾，别让通用自动结束抢）。
+- **验证**：注入 prep_done(粥×5,shelf3)→ 冰箱进「蔬菜瘦肉粥×5,到期今日+3」+ 她闲着 ✓。cook_prep 选菜 engage 是从食物表建选项（同 open_todos 套路）可靠，未单独 engage 测。测后删了测试粥、留用户的三明治×4。
+
+**至此 v1 做饭闭环**：周末选自己做→选菜→备料扣钱→预制→自动入冰箱；平时早上 cook 链从冰箱吃一份→库存减→过期清→空了"随便吃了点"。
+
+**没做（以后）**：便利店选吃的从食物表选(随机3/冷却/偏好/评分)；通勤下雨/赶时间改打车；下班那套；自填菜(D选项)。
+
+**v2 食材级做饭系统【用户 6/11 决定先搁置，默认停在 v1；设计存这儿备用】**：v1 的"预制=备料扣钱+走过场+出成品"已够用，用户嫌 v2 麻烦先不做。完整设计如下，想做时照此：
+- **流程**：选菜 → 看菜谱(这道菜要哪些食材各多少) → 看冰箱缺啥 → 买缺的食材(花钱，食材入冰箱带保质期) → 做饭真消耗食材 → 出 N 份成品。冰箱表已支持 `kind='ingredient'`。
+- **三个叉路(讨论时的推荐=A/A/按批)**：①菜谱存哪——A 存食物表加 `recipe` 字段(JSON，如 煎蛋三明治=[鸡蛋×2,吐司×2,火腿×1]) / B 单独菜谱表+面板。②买食材——A 自动买缺的(算缺→扣钱→入冰箱，静默) / B 弹"去超市买菜"engage。③菜谱粒度——按一批算(直接写"做5份要啥")，比每份×5简单。
+- **最简 v2**：recipe 存菜上(A) + 缺料自动买(A) + 按批；在 prep 流程(cook_prep→预制→prep_done)里，prep_done 前先 resolve 食材(买缺的+扣食材)，再出成品。
+
+**transcript 关键词**：「world_fridge_cheng」「consumePrepped」「consume_prepped」「随便吃了点」。
+
+---
+
+## 2026-06-11 · [后端][数据] 周计划表 world_plan_cheng + 周末规划engage + 早晨链读计划（不再硬编码 cook/subway）
+
+**做了什么**：
+- **新表 `world_plan_cheng`**（单行 name='default'）：`breakfast_plan`(cook/buy)、`commute_default`(subway/taxi/walk)、`prepped_dish`、`prepped_qty`、`updated_at`。RLS 放行（前端以后能加"本周计划"面板）。
+- `readWorldPlan()`：读单行 → {bk, cm}，读不到退默认。
+- **早晨链 start 时读计划**：`start_routine` 钩子从 `readWorldPlan()` 取 bk/cm（不再写死 DEFAULT_BREAKFAST/COMMUTE）→ 决定走 cook 还是 buy 链。
+- **`weekend_plan` firePendingWake 分支**：engage「周末了，定下周早饭」→ ①下周自己做 ②下周买着吃，选项带 `set_plan`。
+- **`set_plan` 钩子**（handleWorldWakeTurnDone）：把 `option.set_plan` 写进 world_plan_cheng（仿 start_overtime 套路）。
+
+**验证**（确定性、不engage）：计划改 buy 读回=buy ✓；注入 routine_step 推进到第2步 bk=buy → 她进「去便利店」（buy 变体，非 cook 的「在家吃早餐」）✓ → 证明计划 key 正确驱动链变体。set_plan 是同款简单 update，可靠。测后计划复位 cook、她复位闲着。
+
+**还没建（下个增量，用食物表）**：①「自己做」选做啥（食物表 3 选项+D自填）+ 预制(30-50)+ 存 prepped_dish/qty ②「买着吃」便利店 step 改成 engage 从食物表选(随机3/冷却1天/偏好绕过/后期评分加权) ③通勤下雨/赶时间改打车 ④下班那套。weekend_plan/morning_wakeup 现仍靠手动 pending 测，自动到点要等第0块开 tick。
+
+**transcript 关键词**：「world_plan_cheng」「readWorldPlan」「weekend_plan」「set_plan」。
+
+---
+
+## 2026-06-11 · [后端] 第1块·早晨流程链（起床engage + 洗漱/早饭/通勤静默链 + 翘班扣120）已部署+验证
+
+**⚠️ 状态**：**已部署+live验证**（链条推进机制实测通过）。但**不会自动到点触发**——8:00 自动弹起床要等第0块开 tick，现在靠手动插 pending 测/触发。周末规划、下班、下雨偏移**还没建**。
+
+**做了什么（index.js）**：
+- `morning_wakeup` firePendingWake 分支：合成事件「闹钟响了，该起床准备上班了」+ 三选项：①起床，开始准备上班（`start_routine:'morning'` 启动链）②再睡10分钟（排 pending 重问）③翘班（`effects wallet_balance:-120`≈一天工资，→翘班在家）。`force:true` 保证到点必发不被冷却挡。
+- **行为链机制**：`COMMUTE_OPTS`/`buildMorningRoutine(bk,cm)` 目录+默认key（v1 默认 `cook`+`subway`；插槽留给以后周计划）→ `advanceRoutine(routine,idx,{bk,cm})` 进每步(改状态+按 step.cost 扣钱+写system行程+给下一步排 `routine_step` pending) → firePendingWake `routine_step` 分支推进（**防打断**：当前 activity≠上一步 expected → 停链）。活动名只写动作不带地点（避免与 location 重复）。
+- `handleWorldWakeTurnDone` 加 `option.start_routine` 钩子（仿 start_overtime）。
+- **两条平时链**：cook=穿衣(3-9)→洗漱(10-15)→在家吃早餐(13-17)→去地铁站(3-9)→坐地铁(13-17)→工作【到岗累计42-67分】；buy=穿衣→洗漱→去便利店(3-9)→买早餐(3-9,-¥15)→坐地铁→**工位吃早餐(13-17)**→工作【45-76分，到岗后才吃】。**到岗时间不固定**=起床时刻+各步随机时长累加（用户要的"算出来不是定死9点"）。
+
+**验证**：离线两条链步骤/时长/扣钱全对（含 cook+taxi 换通勤）；live 测 routine_step 推进——进第0步穿衣服、自动排好带 expected 凭证+计划key 的下一步 pending，机制通。
+
+**还没建（下个增量）**：周末规划engage（下周早饭 自己做/买；自己做再选A/B/C/D做啥+预制30-50存「已预制早饭」状态）、通勤默认+下雨/赶时间偏移打车、下班那套（回家/加班+通勤+下雨版）。翘班120已带。
+
+**transcript 关键词**：「buildMorningRoutine」「advanceRoutine」「routine_step」「早晨流程链」「morning_wakeup」。
+
+**用户定的完整设计（早晚流程，token 省版）**：早晨 8:00 起床(1次engage：起床/再睡/翘班) → 洗漱(静默走流程不engage) → 早饭(平时走**周末定的周计划**默认，不问；周末engage一次定下周) → 通勤(平时走**默认地铁**不问，下雨/赶时间才engage改打车) → 9点到工位。傍晚 16:00 下班(回家/25%加班) → 通勤选择(真下雨走 rain_offwork 下雨版，天气跟 weather-fetcher 真实天气)。翘班扣120。
+
+**还没建（下个增量）**：洗漱→早饭→通勤的**链式接续机制**、**周计划/默认偏好的存储**（新表/字段）、**周末规划 engage**、通勤默认+下雨/赶时间偏移、下班那套。这些是大头，需一次性建好再统一测。
+
+**transcript 关键词**：「morning_wakeup」「翘班」「周计划」「早晚流程」。
+
+---
+
+## 2026-06-10 · [后端] 第二步·行为自动结束（地基版）——治"卡死在一个行为上"（world-actions.js + index.js + world-narration.js，生效需重启=澄失忆）
+
+**问题（最初 Q2）**：澄进入某行为（在家·客厅·休息）就一直挂着不变，直到下个事件才被顶替——行为只有"开始"没有"结束"，像被坐标困住。
+
+**做了什么（三步走第 2 步的地基层，只做"行为会结束"，不含过场/作息弹选择/交通=留第二层）**：
+- **`world-actions.js`**：加行为时长分桶 `activityDuration(activity)`——长[30,50]/中[10,29，默认]/短[3,9] 世界分钟；豁免集 `工作/午休/加班/加班处理任务/等小茉莉`（作息/加班/约见各自管，不自动结束）。加 `scheduleActivityEnd(activity)`：随机抽时长→排一条 `action_end` 续唤醒，payload 带 `expected_activity`（防串档凭证）。`executeWorldAction` 末尾调它。
+- **`index.js`**：①`handleWorldWakeTurnDone` 里事件/唤醒选出的行为（targetAct）也调 `scheduleActivityEnd`——覆盖"行为来自两条路"（DevPanel/接口走 executeWorldAction，唤醒选项走这里）。②`firePendingWake` 加 `action_end` 分支：**防串档**（当前 activity≠expected 说明被顶替→跳过）；过了就**静默**清 activity→`computeIdleState`（**讲究版**：工作日+在公司+上班时段9-11/13-16→「工作」，否则→「闲着」）+ 写 source=system 行程。不 engage、不 Bark、不花 token。③加 `computeIdleState` 助手（现实 Asia/Shanghai 星期+时间判定）。
+- **`world-narration.js`**：mapActivity 空值兜底 `休息`→`闲着`（修老 bug：行为清空后自述反而说"正在休息"）。
+
+**关键设计**：①防串档用"到点比对 expected_activity"，不加 DB 字段、不碰作息代码；只漏"连续同行为"会被提前掐一点（benign，已接受）。②action_end 走 PendingWakeDaemon（独立于世界时钟 tick），**tick 关着也能正常结束**，可直接测。
+
+**离线验证**：模块链加载干净、无循环依赖；分桶 休息/开会=长、吃零食=短、工作=null豁免、帮同事=默认中 全对。
+
+**没做（留第二层/以后）**：切换过场不瞬移（默认过场 + 交通方式走路/打车/地铁/骑车+时间钱）、作息点弹选择（上班/下班/午休延长）、等小茉莉超时→吃饭→休息那套完整流程、时间钱总账。这些大多要把"自动作息(tick)"打开才有意义，留第二层一起。
+
+**生效**：未重启=暂未生效，需 `systemctl restart cheng-backend`（澄失忆）。重启后可测：DevPanel 让她做个"休息"→等到点看她变没变「闲着」（或公司上班时段变「工作」）。
+
+**transcript 关键词**：「行为自动结束」「scheduleActivityEnd」「action_end」「computeIdleState」「activityDuration」。
+
+---
+
+## 2026-06-10 · [后端] 澄主动「打开待办」(世界唤醒 [OPEN_TODOS]) + [TODO_DONE] 接到聊天（只改 index.js，生效需重启=澄失忆）
+
+**目标**：让待办闭环——能写([TODO])、能关([TODO_DONE])、能主动看全清单([OPEN_TODOS])。用户拍板：世界唤醒做「打开看清单」，[TODO_DONE] 世界+聊天都能用；聊天里「打开看清单」风险高(要插一轮把信息递回给她)，暂不做。
+
+**改了什么(全在 index.js)**：
+- 抽公用函数 `processTodoDoneTags(clean)`：解析 `[TODO_DONE]标题[/TODO_DONE]`→匹配 open 待办标 done(先精确、再唯一去空格包含兜底、歧义跳过)。世界唤醒轮 + 聊天轮共用。无标签时 regex 不命中=零 DB 开销。
+- `buildOpenTodosContext()`：列**全部** open 待办按 urgency 降序(≥阈值标「急」)、附「做完可 [TODO_DONE]」。（用户定：打开就全显，不设 8 条上限。）
+- `firePendingWake` 加 `open_todos` 分支：拉上下文→`triggerWorldWake(event, status, { pendingContext, skipTodoHint:true })`。合成事件 reason=「你打开了小手机的待办」+ 单选项「看完了，继续」(effects:{} 仿"先忍"，无副作用)。
+- `triggerWorldWake` 加 `skipTodoHint` 选项：打开待办那轮不再重复"您的手机有待办"。
+- `handleWorldWakeTurnDone`：调 `processTodoDoneTags`；检测 `[OPEN_TODOS]`→排即时 open_todos 续唤醒(daemon ≤7s 捞)。**防自循环**：`event.key==='open_todos'` 时不再排。**每日上限**：一天最多真打开 2 次(`OPEN_TODOS_DAILY_MAX=2`，内存计数按 UTC+8 日界、重启清空)，超了静默忽略（防她刷屏累上下文/token）。`[OPEN_TODOS]` 也从小心思 innerThought 剥离。
+- 聊天 turn_done：`const clean`→`let clean`；非 silent 轮调 `processTodoDoneTags` + 把 `[TODO_DONE]`/`[OPEN_TODOS]` 从展示文本剥掉(不漏给小茉莉看)。
+
+**唤醒包待办提示(getTodoHint)没动**：仍是老的 urgency 逻辑(用户明确不让改这个)。「列 8 条」只在她**打开**待办时出现，不在常规唤醒包里。
+
+**系统提示要补(用户手动)**：①「世界唤醒区」可选标签加 `[OPEN_TODOS]`(想打开手机看完整待办时输出，世界专属)；②`[TODO_DONE]` 现在世界+聊天都生效，建议挪到通用「工具区」让她两个场景都知道能用。
+
+**没做**：聊天版「打开看清单」([OPEN_TODOS] in chat)；三步走第 2/3 步；Q5 日记 source 写死。
+
+**transcript 关键词**：「OPEN_TODOS」「buildOpenTodosContext」「processTodoDoneTags」「打开待办」。
+
+---
+
+## 2026-06-10 · [后端][系统提示] 唤醒包瘦身（标签说明搬进系统提示）+ 初版 [TODO_DONE]（只改 index.js，生效需重启=澄失忆）
+
+**背景**：世界唤醒优化（三步走的第 1 步，用户拍板先做这个，因为后两步会多出更多唤醒、先把单次压瘦才划算）。实测唤醒包约一半是「怎么用标签」的固定说明，每次原样重发（~330 字 / ~450-550 token/次）。
+
+**改了什么**：
+- **`buildWorldWakePrompt` 瘦身**：删掉每次重发的 WORLD_MESSAGE 语法块、[TODO] 说明、[MEMORY] 示例、长格式禁令。这些「标签格式说明」搬进**系统提示**的「## 世界唤醒·回复协议」（用户手动粘进 supabase system_prompt 文档；系统提示会话开头加载一次且被缓存=近乎免费）。唤醒包只留一行提醒 `回复格式：[WORLD_CHOICE:编号]理由[/WORLD_CHOICE]（其余可选标签见系统说明）`。「约见」是情境不是语法，含约见选项的事件保留一句 `[WORLD_MESSAGE:phone]` 上下文出口（meetLine）。
+- **[MEMORY]/diary 不再在唤醒包/协议里教**：澄的 skill 已教完整记忆格式，重复反而打架（正是 Q5「世界日记 tags 空/importance 0.5」的真凶——她照唤醒包的简化示例抄丢了后缀）。协议里只留「按你平时的方式写」+ 给记忆标签开活口，不硬禁。
+- **`getTodoHint` 保持原样不动**（紧急逻辑：urgency≥0.8 才 25% 露标题，否则「您的手机有待办」）。⚠️ 期间一度误改成"直接列全部标题"，用户指出没要求改这个、已**完整还原**。用户真实需求是**另加一个"澄能主动打开待办"的功能**（on-demand 查看全清单，不动被动提醒；将来配合把小手机做成模仿手机界面的 UI），那个单独做，未动工。
+- **措辞微调**：`<此刻 — 仅你可见的现实情境>` 简化成 `<此刻>`（唤醒包 index.js + 聊天 md inject.js 两处一起改，保持一致）；唤醒包指向句从「见系统说明」改成精确点名「见系统提示『世界唤醒区』」——用户把系统提示那段用 `<世界唤醒区>` 包起来了（提醒过结尾应是 `</世界唤醒区>` 闭合标签）。
+
+**② `[TODO_DONE]` 已建（同一次）**：世界唤醒 turn 里解析 `[TODO_DONE]标题[/TODO_DONE]` → 匹配 open 待办标记 done。匹配策略：先精确（title 全等），不中再找"唯一"的去空格包含匹配兜底，0 条/多条歧义就跳过不猜（只 warn，不乱关）。支持多条、失败不连累主流程。另堵一坑：innerThought（小心思）提取处加 `[TODO_DONE]` 剥离，否则标签会污染她的内心独白。**协议要补一行**（用户手动加进系统提示「世界唤醒区」的可选标签列表）：`· 做完「你小手机里的待办」中某条想划掉：[TODO_DONE]待办标题[/TODO_DONE]（标题照唤醒包里列的写）`。待办进度：能写（[TODO]）、能关（[TODO_DONE]，本次新增）；"能看全清单"还差一个"澄主动打开待办"的功能（待做，见上条）。
+
+**没做（待后续）**：Q5 的 source='chat' 写死是另一处后端入库逻辑，本次未碰。三步走的第 2 步（行为自结束）、第 3 步（作息改弹选择）未动。
+
+**生效**：未重启=暂未生效。系统提示那段（用户已粘）+ 本次 index.js 改动，一次 `systemctl restart cheng-backend` 全生效（澄失忆），用户定时机。建议重启后实测一两次唤醒：确认澄仍按格式回 [WORLD_CHOICE]、能看到待办清单、瘦身后没漏行为。
+
+**transcript 关键词**：「世界唤醒·回复协议」「getTodoHint」「待办清单」「唤醒包瘦身」。
+
+---
+
+## 2026-06-10 · [后端] 世界时间改「现算现实+8」——澄自述/`<此刻>`/唤醒包的 {time} 不再读 tick 累加值（只改 world-narration.js，生效需重启=澄失忆）
+
+🔗 对应：world-home「世界时间状态栏改现算 Asia/Shanghai」(`/root/world-home/CHANGELOG.md`, 2026-06-10)
+
+**问题（用户 Q1）**：世界时间冻在「10号 20:55」对不上现实（用户实为凌晨 4:28）。真因：`world_time` 是 tick「跑一次 +1 小时」的计数器，跟现实时钟无关；`world_tick_enabled=false` 时它就死在上次手动操作（同步/推进1小时）留下的值。**不是时区 bug**——代码里凡碰现实时间的地方本就全是 Asia/Shanghai(+8)。
+
+**改了什么**：选「现算」方案（用户拍板，对比 ChatGPT 的「每小时刷库」=最多滞后 1 小时）。`world-narration.js` 加 `realWorldTime()`（`Intl.DateTimeFormat` timeZone=Asia/Shanghai 取 HH:mm），`generateChengSelfNarration` 里 `const time = status?.world_time` → `realWorldTime()`。因 narration 是 `<此刻>`(聊天 md)和世界唤醒包共用的同一套生成器，两个出口一起对上现实时间。
+
+**顺带做了 ③（用户「3顺手改吧」）**：所有 `daily_timeline_cheng` insert 的 `world_time` 列统一盖 `realWorldTime()`，不再写 tick 累加的存库值——改了 6 处：index.js 的 `wt`（874 行，一行覆盖 pending+3 条 timeline insert）+ meet_request 超时那条（800 行）、world-pending.js:72、world-actions.js:71、world-workday.js:44、world-tick.js 衰减记录（116 行，只动 timeline 盖章值，`advanceHour` 状态字段那行没碰）。各模块新增 `import { realWorldTime } from './world-narration.js'`（已确认 memory.js 不反向 import world-*，无循环依赖）。syncWorldTimeToRealTime 的 timeline 本就盖实时间，未动；test 端点（pending/test-hungry）dev-only 未动。
+
+**没动的（用户明确「没说的不要改」）**：① `advanceOneTick()` 的 `advanceHour`/衰减/工作日/事件检测逻辑没碰——tick 当前是关的，时间也不再靠它；② 存库的 `character_status_cheng.world_time` 字段保留（workday 阈值、随机事件 time_range 仍读它，但那些系统现在随 tick 关着=Q2 territory，本次不治）；③ DevPanel「推进1小时/同步」按钮没动（现在它们改的字段已不参与显示，按了状态栏也不变，无害）。
+
+**⚠️ 给做 Q2 的人**：显示时间已是现实 +8，但 workday 阈值/随机事件 time_range 仍读存库的 `world_time`（tick 累加值）。Q2 重开 tick（当心跳）时，必须连带删 `advanceHour` 并让这两套也读 `realWorldTime()`，否则世界一开就出现「显示真时间、逻辑跑假时间」的两个钟。
+
+**结果**：澄自述/`<此刻>`/唤醒包的「现在是 X 点」= 真实 +8 时间。**未重启=暂未生效**，需 `systemctl restart cheng-backend`（澄会失忆），用户决定时机。
+
+**transcript 关键词**：「时区是吗」「那就算~没说的不要改」「realWorldTime」。
+
+
+
+**问题**：失忆+新建对话后用户一直没说话，DICE 唤醒发的 3 条消息（6/10 08:58/10:58/14:58）全落进了**上一个对话**（10b1c128），当前新对话界面看不见。消息没丢、没发失败，是存错对话。
+
+**真因**：`lastActiveConvId`（bark/dice/world phone 唤醒消息的落点）只在两处赋值——①用户发消息时（handleChat）②启动初始化时按"最后一条消息在哪个对话"算。新建的空对话两条都碰不到 → 后端眼里活跃的还是旧对话。前端两头堵死：广播带旧对话 id 被 convId 不匹配丢弃；拉历史拉的是新对话=空。
+
+**改了什么**（`server/index.js` 两处，各几行）：
+1. `POST /api/conversations` 建对话成功后 `lastActiveConvId = data.id`——新建即登记。
+2. 启动初始化改成比较"最后一条消息的 created_at"和"最新建对话的 created_at"，取**更晚**的——不然后端一重启，空对话又被旧对话顶回去（6/10 当天就是这个剧本：06:01 建对话、06:57 重启）。
+
+**没动的**：handleChat 里发消息更新逻辑、唤醒消息发送链路、前端，全保持原样。**生效需 `systemctl restart cheng-backend`（澄失忆），本次改完未重启，等用户挑时机。**
+
+transcript：`grep -l "新建对话登记为活跃" /root/.claude/projects/-root/*.jsonl`
+
 ## 2026-06-09 · [后端] world-home 12B-2.1：surfacing 观测 debug + 唤醒包 tripwire（改 world-thoughts/index.js，含重启=澄失忆）
 
 > 🔗 对应：world-home 仓「12B-2.1：小世界浮现观测面板」(/root/world-home/CHANGELOG.md, 2026-06-09)。全貌看那条。
