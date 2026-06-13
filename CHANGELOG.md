@@ -39,7 +39,9 @@
 
 **追加（同日，验证后修）**：①`formatUserStatus` 把小茉莉状态里的"澄"→"我"（<此刻>给澄看，"和澄一起午休"→"和我一起午休"）。②身体短语库 world_self_narration_phrases 重灌 **5 档**（0-20/21-40/41-60/61-80/81-100，每档 5 句×4 状态=100 句，DB 不进 git）——治"吃完 satiety 64 还说快饿"（现 61-80 归"挺满足"）。体力/清洁/健康同步 5 档。**离线验证**：满状态 <此刻>=「我等了会儿外卖送到，把点的麻辣烫吃了，到点午休…不累也不算精神，挺满足的，大体还算干净。小茉莉…正在和我一起午休」。formatUserStatus 改动要重启生效，短语 DB 已实时生效。
 
-**transcript 关键词**：「pending_narration」「appendNarration」「动作补叙」「satiety_gain」「taxiFare」「formatUserStatus」。
+**追加2（6/13）：身体短语≤50规则 + 吃完带感受**。①pickPhrases 重写：4状态≤50才出现(差状态优先,最多3)，都>50随机挑2-3，excludeStats 排除已在动作里带过感受的数值。②buildRecentActions 返回{text,usedStats}：改数值的动作(item带stat+after)后接一句该数值现状短语("吃了麻辣烫，饱腹感很舒服")，usedStats 传 pickPhrases 排除避免重复。③appendNarration 加 statInfo，advanceRoutine 吃饭步传 {stat:'satiety',after:patch.satiety}。**离线验证**：吃完外卖→"吃了点的麻辣烫，饱腹感很舒服…(结尾不重复饱腹)"；都好→随机挑3；体力清洁低→只显差的。**还差(下块)**：通勤固定搭配合并(去地铁站+坐地铁+走到公司=乘地铁到公司，贪婪序列匹配)、前端动作分类可视化+例句、下班等小茉莉流程——见 [[project_world_home_todos]]。
+
+**transcript 关键词**：「pending_narration」「appendNarration」「动作补叙」「satiety_gain」「taxiFare」「formatUserStatus」「excludeStats」。
 
 ---
 
