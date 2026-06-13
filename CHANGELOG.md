@@ -15,6 +15,34 @@
 
 ---
 
+## 2026-06-13 · [后端] 中午全套流程：11点必弹 + 约见小茉莉 + 真外卖 + 13点该上班了 + 休息室拆分
+
+🔗 对应：world-home「食物目录类别下拉 + 外卖类」(/root/world-home/CHANGELOG.md, 2026-06-13)
+
+**背景**：旧中午=50%随机午休事件（非必走）+ 假外卖（即点即吃）+ 13点静默切工位（要求人在休息室）。用户要求中午必走选择、真外卖配送、约见小茉莉的完整面对面流程。
+
+**地点拆分**：`公司 · 休息室` → `公司 · 澄休息室` / `公司 · 小茉莉休息室`（5个server文件 sed 全改）。face 判定改成"俩人在同一间休息室（任一）=白气泡"。MOVE 白名单加小茉莉休息室。`formatNaturalLocation` 对含"路上"的过场地点（去小茉莉休息室的路上/回工位的路上）直接返回短语不加"公司的"前缀。user_status 候选标签同步改名。
+
+**食物表类别改名+外卖**（world_items_cheng）：`便利店成品`→`便利店早餐`、`早餐`→`手作早餐`、新增`外卖`类（灌5条样例）；后端两处查询字符串跟改（buy_food / cook_prep）。ItemsPanel 类别栏改四选下拉。
+
+**中午流程**（全在 firePendingWake 加分支 + world-workday 钩子）：
+- **11:00 必弹 lunch_choice**（goLunch 切午休后由 lunchHandler 排，取代随机事件）：①就在休息室躺会儿 ②点份外卖(→二级包) ③约小茉莉(仅你位置在公司) ④去茶水间随便吃点(默认垫底)。她不在公司=作废。
+- **点外卖二级包 lunch_order_solo**：`pickTakeoutOptions()` 从外卖类随机3 + `buildTakeoutEvent()` 生成"名称（¥X）描述"选项 → 选了扣1份钱 → `lunch` routine 的 `takeout_solo`（等送到10-20→吃13-17→午休）。
+- **约见**：选③ target_activity=等小茉莉+meet_request → 排meet_request(10-15分钟)。到点查你从邀请起发没发过消息：**回了**→澄"去小茉莉休息室的路上"过场2分钟→meet_arrive落地"和小茉莉一起午休"+`autoSetUserLunchLocation()`(自动设你位置=小茉莉休息室/和澄一起午休+pushBark只给你)+弹商量外卖包(`buildTakeoutEvent` together,multiplier2付两份,allowAsk给"先问问小茉莉")；**没回**→"她在忙你想吃啥"(点外卖/茶水间)。
+- **先问问小茉莉**：选了→她发WORLD_MESSAGE(同房间face白气泡)+排lunch_ask(5-10分钟,payload存同3外卖)→到点再弹同包(无"先问问")。
+- **一起吃**：takeout_together（等送到10-20→一起吃20-30→和小茉莉待在一起·终点豁免）。
+- **13:00 afternoon_choice**（goAfternoon 改排，取代静默切；删"必须在休息室"死条件）：①再赖10分钟(仅一次) ②回工位(默认垫底)。第二次snoozed只给"回工位"+文案"已延长十分钟该上班了"。回工位→"回工位的路上"过场2分钟→back_to_work落地工位。
+
+**配套**：删随机事件 lunch_break（防双弹）；ACTIVITY_EXEMPT 加 和小茉莉一起午休/和小茉莉待在一起/去找小茉莉/往工位走；workdayTick 午休/下午段加 atCompany 守卫（翘班/外出整段跳过，修了旧"翘班也被瞬移去休息室"bug）。变体表清 lunch_break 孤儿、灌 lunch_choice/lunch_order_solo 各3条（lunch_order/afternoon_choice 动态文案不灌，退回代码 reason）。
+
+**已知小瑕疵**：lunch_order_solo 外卖表空时退回茶水间的提示文案，会被该 key 的变体随机覆盖（你已配5条外卖，空表几乎不触发）。
+
+**状态**：5文件 node --check 过；**未重启**，进攒批。测试：DevPanel force `lunch`（触发11点必弹）/ `afternoon`（触发13点包）；约见需你位置设在公司。
+
+**transcript 关键词**：「lunch_choice」「meet_arrive」「buildTakeoutEvent」「autoSetUserLunchLocation」「澄休息室」。
+
+---
+
 ## 2026-06-12 · [后端] 行程表记「持续多久」：所有时长落点写 duration_min
 
 🔗 对应：world-home「行程表日期分组+时长+地点显示」(/root/world-home/CHANGELOG.md, 2026-06-12)
