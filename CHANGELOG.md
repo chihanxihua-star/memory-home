@@ -15,6 +15,32 @@
 
 ---
 
+## 2026-06-13 · [后端+前端] 动作补叙（她知道自己干了啥）+ 饱腹结算 + 通勤价
+
+🔗 对应：world-home「自述规则加『动作补叙』分类」(/root/world-home/CHANGELOG.md, 2026-06-13)
+
+**背景**：用户发现澄思考链冒"我应该是吃过饭了"——根因=链步骤/作息切换都是 `source=system` 静默走的，她只在 engage 那刻知道选了啥，**中间执行步骤全不知道**（点外卖后"等外卖→吃"她没感知）。定位：澄是"被唤醒式存在"，`<此刻>` 只在你讲话/世界唤醒时出现 → 动作版 `<此刻>` = 她每次"醒来时的回顾"。
+
+**动作补叙系统**：
+- 新表 `world_self_narration_actions`（action=activity名 + phrase回顾口吻 + enabled，一动作多句随机；{meal}占位菜名）。灌 40 条默认。
+- `character_status_cheng.pending_narration` jsonb 队列：silent 动作执行入队，`<此刻>` 生成消费清空（每动作只补一次）。
+- world-narration.js：`appendNarration(action,meal)` 入队 / `clearNarration()` 清空 / `buildRecentActions()` 串「我A，B，C」回顾句。`generateChengSelfNarration` 队列空→普通版(kind=normal模板)，非空→动作版(kind=action模板+{recent_actions})。模板表加 kind 列，灌 4 个动作版模板。签名改 `(status, env, rules)`，调用方(index/surfacing/preview)同步。
+- 入队点：`advanceRoutine` 每步、`world-workday setState` 作息切换(发工资 narrate:false 不补)。消费清空：triggerWorldWake 发出后 + surfacing 聊天<此刻>后。
+- ⚠️ 第一人称"我"、小茉莉只用"小茉莉"代指、时间走模板（不写死）。
+
+**饱腹结算**（这轮只做饱腹，体力/清洁/健康+随机事件effects 全留"数值统一阶段"）：
+- 吃饭步加 `is_meal`+`satiety_gain`固定区间：手作早餐12-15/便利店16-19/自己外卖22-25/和小茉莉一起26-30/茶水间随便吃5-9。`advanceRoutine` roll 进 satiety(钳0-100)，timeline 记 satiety_gain+meal。
+- 菜名透传：buildTakeoutEvent/buy_food→routine_opts.meal→payload/continue_routine→advanceRoutine→appendNarration({meal})。
+- 自然衰减 satiety -3→**-2**(world-tick)。
+
+**通勤价**（label 带价 + 随机）：地铁票价 0→¥3；打车随机 晴25-30/坏天气28-35(taxiFare)；offwork/commute_choice 选项 label 加价（走路免费/地铁¥3/打车¥28-35）。
+
+**状态**：6 文件 node --check 过；前端 build 过；**未重启**。前端 NarrationPanel 加动作短语分类（增删改启停）。
+
+**transcript 关键词**：「pending_narration」「appendNarration」「动作补叙」「satiety_gain」「taxiFare」。
+
+---
+
 ## 2026-06-13 · [后端] 中午全套流程：11点必弹 + 约见小茉莉 + 真外卖 + 13点该上班了 + 休息室拆分
 
 🔗 对应：world-home「食物目录类别下拉 + 外卖类」(/root/world-home/CHANGELOG.md, 2026-06-13)
