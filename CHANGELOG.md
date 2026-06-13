@@ -37,7 +37,9 @@
 
 **状态**：6 文件 node --check 过；前端 build 过；**未重启**。前端 NarrationPanel 加动作短语分类（增删改启停）。
 
-**transcript 关键词**：「pending_narration」「appendNarration」「动作补叙」「satiety_gain」「taxiFare」。
+**追加（同日，验证后修）**：①`formatUserStatus` 把小茉莉状态里的"澄"→"我"（<此刻>给澄看，"和澄一起午休"→"和我一起午休"）。②身体短语库 world_self_narration_phrases 重灌 **5 档**（0-20/21-40/41-60/61-80/81-100，每档 5 句×4 状态=100 句，DB 不进 git）——治"吃完 satiety 64 还说快饿"（现 61-80 归"挺满足"）。体力/清洁/健康同步 5 档。**离线验证**：满状态 <此刻>=「我等了会儿外卖送到，把点的麻辣烫吃了，到点午休…不累也不算精神，挺满足的，大体还算干净。小茉莉…正在和我一起午休」。formatUserStatus 改动要重启生效，短语 DB 已实时生效。
+
+**transcript 关键词**：「pending_narration」「appendNarration」「动作补叙」「satiety_gain」「taxiFare」「formatUserStatus」。
 
 ---
 
