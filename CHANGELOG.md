@@ -39,6 +39,13 @@
 
 **追加（同日，验证后修）**：①`formatUserStatus` 把小茉莉状态里的"澄"→"我"（<此刻>给澄看，"和澄一起午休"→"和我一起午休"）。②身体短语库 world_self_narration_phrases 重灌 **5 档**（0-20/21-40/41-60/61-80/81-100，每档 5 句×4 状态=100 句，DB 不进 git）——治"吃完 satiety 64 还说快饿"（现 61-80 归"挺满足"）。体力/清洁/健康同步 5 档。**离线验证**：满状态 <此刻>=「我等了会儿外卖送到，把点的麻辣烫吃了，到点午休…不累也不算精神，挺满足的，大体还算干净。小茉莉…正在和我一起午休」。formatUserStatus 改动要重启生效，短语 DB 已实时生效。
 
+**追加3（6/13）：补叙补全 + 通勤搭配合并 + 打车拆多步**。
+- **补叙1-3入队**：约见(meet_request回了 append'去找小茉莉' / meet_arrive append'到小茉莉休息室')、回工位(back_to_work append'回工位')、行为(world-actions.js executeWorldAction append action.label，ACTIONS 加 narrate_stat 主感受字段，改数值行为带 stat+after 感受)。
+- **通勤搭配合并**(world-narration.js COMBO_RULES + matchCombo + comboPhrase)：连续动作整串贪婪匹配→公式拼接 `[天气][跟小茉莉一起]乘[地铁/车][到公司/回家]`。天气从 item.wx 拿、便利店菜名从 item.meal 拿。约见=固定短语"去小茉莉休息室找她"。`bad_weather` 布尔升级成天气种类(''|雨|雪)，commuteStep/taxiFare 真值判断兼容。advanceRoutine 通勤步入队带 wx+meal(appendNarration 加 extra 参)。
+- **打车拆多步**(commuteSteps 函数统一通勤段)：打车=出门/走到公司楼下 + 打车(等车5-10) + 乘车(晴8-12/坏13-22+打车费)；地铁=去站/从公司走到站 + 坐地铁 + 走到公司/回家。buildMorning/Evening 重构用 commuteSteps，commute_choice next_index 一致性保持(前缀不变)。
+- **离线验证全过**：去地铁站+坐地铁+走到公司→"坐地铁到公司"；雨天→"下雨天坐地铁回家"；便利店→"在便利店买了牛奶包子，坐地铁到公司"；打车→"打车到公司"/"下雪天打车回家"；约见→"去小茉莉休息室找她"；洗澡→"冲了个澡，身上还带点香"。
+- **未做**："跟小茉莉一起"维度(下班等小茉莉流程没做，together 标志留接口)；时间体系理顺。
+
 **追加2（6/13）：身体短语≤50规则 + 吃完带感受**。①pickPhrases 重写：4状态≤50才出现(差状态优先,最多3)，都>50随机挑2-3，excludeStats 排除已在动作里带过感受的数值。②buildRecentActions 返回{text,usedStats}：改数值的动作(item带stat+after)后接一句该数值现状短语("吃了麻辣烫，饱腹感很舒服")，usedStats 传 pickPhrases 排除避免重复。③appendNarration 加 statInfo，advanceRoutine 吃饭步传 {stat:'satiety',after:patch.satiety}。**离线验证**：吃完外卖→"吃了点的麻辣烫，饱腹感很舒服…(结尾不重复饱腹)"；都好→随机挑3；体力清洁低→只显差的。**还差(下块)**：通勤固定搭配合并(去地铁站+坐地铁+走到公司=乘地铁到公司，贪婪序列匹配)、前端动作分类可视化+例句、下班等小茉莉流程——见 [[project_world_home_todos]]。
 
 **transcript 关键词**：「pending_narration」「appendNarration」「动作补叙」「satiety_gain」「taxiFare」「formatUserStatus」「excludeStats」。
