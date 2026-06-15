@@ -603,7 +603,7 @@ transcript：`grep -l "新建对话登记为活跃" /root/.claude/projects/-root
 
 - 只观测、不改 12B-2 行为。world-thoughts.js：pickWorldThought 写内存环形 `pickHistory`(最近20，只聊天决策，**不含 worldWakeInjection**)；`recordWakeInjectionScan` 扫唤醒包 tag→`worldWakeInjectionLatest`(顶层) + `wakeInjectionHistory`(单独，最近20)；`getSurfacingDebug` 只读。全内存不落库。
 - index.js：triggerWorldWake build 后调 recordWakeInjectionScan(tripwire 正常恒false)；`GET /api/debug/world-thought-surfacing` 只读。
-- **鉴权**：复用现有 Bearer JWT 中间件(真实门，无token→401)+ 后端 127.0.0.1-only，没新造账号。
+- **鉴权**：唯一安全边界=全局 Bearer JWT 中间件(无/错 token→401，有效 JWT 才读)，没新造账号。（2026-06-15 更正：原文写"+后端 127.0.0.1-only"是错的——debug 路由本身没有 loopback 限制；127.0.0.1 只是后端监听地址、经 nginx 反代，且本站 CF→nginx→后端架构下 loopback 判断本就会被绕过，见 2026-06-09「tool-hook」条第 1291 行。）
 - **重启 cheng-backend 一次**(澄失忆)。验证：401/200+结构、pickHistory记录且不含worldWakeInjection、tripwire真实扫描(干净false/含tag true)、debug只读不pick。
 
 > transcript 关键词(root CC)：`getSurfacingDebug`、`pickHistory`、`worldWakeInjectionLatest`、`recordWakeInjectionScan`。
