@@ -15,6 +15,18 @@
 
 ---
 
+## 2026-06-15 · [后端+基建] dice 安静时段真生效 + 轮询上限 120→1440 分钟（dice.js + forge-reload/config.json）
+
+**背景**：用户发现 dice（聊天主动唤醒）夜里也可能打扰。排查发现 `dice_quiet_hours:[1,8]`（+8 凌晨1–8点不打扰）**是死配置**——`getLocalHour()` 定义了从没被调用，`dice_quiet_hours` 只在 `/api/dice/config` 回给前端显示，`_roll()` 里压根没查时段。（另：dice 没"没启动"，是日志在 `nohup.out` 不在 journalctl；守护正常起，只是 120 分钟计时被当晚多次重启反复重置，没到点。）
+
+**改了**：
+- `dice.js _roll()` 开头加安静时段拦截：`dice_quiet_hours`=[起,止]（+8，含起不含止，支持跨午夜），命中就 console.log 跳过本轮（_tick 之后照常重排下一轮）。现在 1–8 点（+8）真的不发了。
+- `forge-reload/config.json`：`dice_interval_max` **120 → 1440**（min 仍 120）→ dice 改为每随机 **2–24h** roll 一次（原固定 2h，频率大降）。config.json 是 forge 基建配置（**不在 git**，换 VPS 要手搬）；dice.js 每轮 readConfig 实时读，但运行中的计时器要等下次重排/重启才用上新区间。
+
+**生效**：dice.js 是代码改动，需重启 cheng-backend 才生效（会跟 MOVE_BOTH 系统提示那次重启一起生效）。
+
+---
+
 ## 2026-06-15 · [后端] 共同移动标签 [MOVE_BOTH]（新模块 world-move.js + index.js；为睡眠链铺位置同步）
 
 **做了什么**：聊天里澄和小茉莉【已经】一起换地方时（抱着进卧室/牵着去厨房），一个标签同时更新两人位置，解决"正文一起到卧室了、状态栏小茉莉还在原处"的不同步。只改 location/activity，**不结算数值、不代表进入睡眠**（睡眠链以后单独做，可复用这步的位置同步）。
