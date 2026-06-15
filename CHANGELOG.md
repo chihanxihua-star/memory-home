@@ -15,6 +15,40 @@
 
 ---
 
+## 2026-06-15 · [后端+基建] 「改后端不重启CC」实现：后端重启探活复用旧澄会话，澄不失忆
+
+**目标**：以前改后端代码 `systemctl restart cheng-backend` 会杀掉 tmux 里的澄会话→失忆。现在普通后端重启**接管现存会话**，澄不失忆；只有换模型/换配置/失忆时才真重起。分支 `改后端不重启cc`（server 子模块，从 `tmux-migration` 切出）。审查见同会话 root transcript（另一模型逐条 review，关键词「config-changed」「孤儿轮」）。
+
+**澄被杀的三个机关 + 对应改法**：
+1. `tmux-manager.js start()` 每次 `randomUUID()`+先 kill 再建 → 改成**探活复用**（见下）。
+2. `index.js` SIGTERM→`cc.stop()`(kill-session) → 改成 **`detach()`**（只清看门狗/timer，不杀会话）。SIGTERM/SIGINT 改 once+await。
+3. systemd 默认 `KillMode=control-group` 收割 cgroup 子进程 → **加 `KillMode=process`**（只杀 node 主进程）。
+
+**安全接管的判据**（`_probeReusable()`，任一不满足就强制重起，宁可失忆一次也不接管坏/不一致会话）：
+- pane 没死（`#{pane_dead}=0`）且跑的是 claude/node（`#{pane_current_command}`，没崩成 shell）；
+- **配置指纹一致**：起会话时把 模型/effort/思考/cwd/系统提示 的 hash 写进 tmux 选项 `@cheng_config_hash`；复用前比对，**不一致=配置变了=强制重起**（防"改了模型只重启后端却静默还用旧模型"）。缺指纹（旧代码起的会话）也判不一致→重起升级。
+- session-id 还原：读 tmux 选项 `@cheng_session_id`，兜底从 `#{pane_start_command}` 解析 `--session-id`（**删掉了原来 `ls -t *.jsonl|head -1` 猜最新文件**的不可靠做法）。
+
+**孤儿轮**：后端正好在澄回话途中被重启→接管时标 `busy=true`，`_drainOrphanTurn()` 等那轮自己结束再 `busy=false`+emit `drained`；期间 4 个发送门（chat flush / world / bark / summary）看 `cc.isBusy()` 不注入，排空后 `drained`→`flushOrGrace()` 放出攒的消息。**那一轮回复不补发**（后端重启后 `activeTurn` 已丢、`turn_done` 见 null 直接 return，架构上投递不出去，核实过）。
+
+**并发/竞态加固**：`start()` 串行锁 `_starting`；`_generation` 代次——force 重起换代后旧 `_watchTurn`/看门狗/延迟重起自动作废，不串台；`_restartTimer` 存句柄、start/restart/amnesia/stop/detach 统一清；看门狗改递归 setTimeout（防探活重叠）；轮中会话崩溃在 `_watchTurn` 内二次探活快速失败（不傻等 660s）。
+
+**force 语义**：`amnesia()`/`restart()`（换模型/effort）走 `start({force:true})` 强制杀旧起新——失忆、换模型、forge 重启行为全不变（forge 走 restart→force）。
+
+**没动**：forge/世界/记忆/收藏等功能逻辑一概没碰；`clearScreen`(/clear) 全仓从没被调用，审查里"/clear 后更新 metadata"那条对本系统是空的，跳过。**长期项**：拆独立 `cheng-claude.service`（双 systemd）更干净，本轮按用户定先不拆。
+
+**验证**：两文件 `node --check` 过；tmux 用户选项/list-panes 原语实测可用；独立测试驱动复用决策 14/0（接管/指纹不符拒绝/启动命令解析/缺指纹拒绝/shell拒绝/无会话拒绝/指纹敏感）。
+
+**⚠️ 怎么回滚（给未来的 CC）**：改动在 server 子模块 `改后端不重启cc` 分支 + `/etc/` 的 service 文件（不在 git）。
+1. 代码：`cd /root/memory-home/server && git checkout -- . && git checkout tmux-migration`
+2. service：`cp /etc/systemd/system/cheng-backend.service.bak-before-noreboot-20260615 /etc/systemd/system/cheng-backend.service && systemctl daemon-reload`
+3. `systemctl restart cheng-backend`（这下会让澄失忆一次，但跑回验证过的旧稳定版）。
+新代码往会话写的 `@cheng_*` 选项旧代码不读，残留无害。
+
+**部署代价**：加载新代码那一次重启，因内存里还是旧 SIGTERM（会 kill 会话），澄仍失忆一次；**之后**的后端重启才免疫。
+
+**✅ 已部署并生产实测通过（2026-06-15）**：transition 重启后澄重生为 PID 531963、新代码写入 metadata（sid=e88102cb…、hash=06e6ad65…）；随后**连续 3 次 `systemctl restart cheng-backend`，澄 PID 全程 531963 不变**，每次日志均「复用已存在 cheng 会话」，会话 pane 仍是活的 claude UI，后端 active。即后端重启不再杀澄、不再失忆。
+
 ## 2026-06-15 · [基建][⏳准备中·未改代码] 开工「改后端不重启CC」分支 + 备份 systemd service
 
 **这是一条准备/意图记录，代码还没动。给未来的我（或接手的 CC）：先看懂目标再下手。**
