@@ -15,6 +15,100 @@
 
 ---
 
+## 2026-06-14 · [前端] CC 文档框右下角字数改 word 式（中文按字/英文按单词，≈token）
+
+`cheng-memory/src/ChatPanel.jsx` `DocEditor`：右下角字数从纯字符数（`.length`）改成新 `countWordStyle`——中文每个 CJK 算 1、英文/数字连续串算 1 个词（不计标点/空格/换行）。目的：英文文档纯字符数虚高（hello=5），word 式更贴近 token（output_style 实测 word式4320 ≈ 后端token估算4743，≈1:1）。**这只是文档框右下角的"字数"显示，标签仍是「字」；跟右上角「CC 文档估算 token」是两套（但数值接近）。真实 token 仍以右上角 ctx/usage 为准。** 收起态+全屏态都改。build 过、纯前端不重启。（中途曾改成显示 tokens 又改回字数，最终定 word 式字数。）
+
+## 2026-06-14 · [后端+系统提示+前端] 世界唤醒包大改造（软化壳/去理由/待办包纯展示等）+ 视角转述 + 同事改名
+
+🔗 对应：world-home「聊天念头条 + 小心思去bubble + 念头池展开全文」(/root/world-home/CHANGELOG.md, 2026-06-14)（那是同一长会话的前半段）。
+
+**一轮长讨论的成果，全部已重启生效 + 强制触发真唤醒实战验证过。** 改 `index.js`/`world-work-events.js`/`world-narration.js` + DB 系统提示。
+
+**A. 唤醒包软化 + 结构调整**（`buildWorldWakePrompt`）：去掉「原因：」「你可以选择：」「<此刻></此刻>」标签词，写成"她醒来看到的一幕"；`【世界唤醒】`保留（她靠它认）。回复格式行从 `[WORLD_CHOICE:选项编号]你的理由[/WORLD_CHOICE]` → `想挑哪个？[WORLD_CHOICE:编号]`。**「在场：X」整行删掉**（原因句已点名老板/Sum/Any，单独一行既冗余又跟随机原因撞名）。
+
+**B. 去理由**：①唤醒包格式去理由（A）；②解析正则放宽 `\[WORLD_CHOICE:\s*(\d+)\s*\](?:([\s\S]*?)\[\/WORLD_CHOICE\])?`（理由+闭合都可选，光秃 `[WORLD_CHOICE:1]` 也认）；③剥离正则同步放宽（防裸标签漏进小心思）；④TimelinePanel 去掉理由显示只留思绪；⑤**系统提示**（见 G）。她仍可能习惯性写理由，放宽正则兜住、不显示，无害。
+
+**C. 待办系统**：①待办提示 `getTodoHint` 措辞改「手机上有待办/手机上有紧急待办」（露具体标题那档 25% 保留没动）；②待办提示移到「想挑哪个」之后 + 带格式提醒「(想看清单，回复 [WORLD_CHOICE:编号] 后带上 [OPEN_TODOS])」，只在有待办时出现；③**待办包(open_todos)改纯展示**：buildWorldWakePrompt 特判 open_todos 只列清单+「看完就行，不用选」，不放选项/此刻/发消息提示；handleWorldWakeTurnDone 特判 open_todos 只处理 [TODO_DONE]、不解析选择、不写行程、不默认；④**聊天也能写待办 [TODO]**：抽出共用函数 `processTodoTags`，世界唤醒轮+聊天轮都调，聊天剥离清单加 [TODO]；⑤「只开待办没选」不做复杂重发，改成 C② 的格式提醒防患于未然（她忘了走原默认兜底）。
+
+**D. 补充 recap**：饥饿忍着/赖床再睡的续唤醒「补充」改成「X分钟前[触发]，当时你说[选择]」（如「10分钟前你饿了，当时你说先忍着。」）。打开待办那条不套（走纯展示待办包）。
+
+**E. 同事改名**：`world-work-events.js` npcPool 同事A/B → **Sum/Any**（product_test 同事A→Sum）。用户在 world-home WakeReasonsPanel 给原因变体也写了 Sum/Any。
+
+**F. 视角转述**（`world-narration.js` formatUserStatus，治穿帮：澄在公司凭啥知道小茉莉在家干嘛）：新增 `sameRoomAsCheng`（独立拷贝，**不碰气泡的 canFaceToFace**）。①同房间→澄直接看见「小茉莉在我旁边，正X」（"正在"→"正"）；②不同房间→转述「小茉莉说她在X地X事」（信息是她设状态告诉澄的，不穿帮）；③同栋楼省楼名（都在公司→「工位」不说「公司的工位」），不同栋楼保留全名。
+
+**G. 系统提示同步**（⚠️**关键基建坑**）：系统提示真源 = **DB `documents_cheng` 那行 `doc_type=system_prompt` 且含「世界唤醒区」的（id `96c4f3a9-1194-48d2-82ee-a270af363c7c`，39k字；另有一行空的别选错）**。重启时 DB 内容**覆盖**写进 `/home/claude-user/.claude/cheng-append-sysprompt.md`。**改系统提示只能改 DB（或 cheng 世界书面板），改文件没用——重启被覆盖。** 本轮早先改文件去理由→重启丢了→实测澄还写理由，才发现此坑。已在 DB 改：①去理由（必答行）②`[TODO]` 从「可选标签」移进「②通用工具区(世界+聊天都能用)」。
+
+**实战验证**（force 触发同事求助，抓 tmux 真包）：软化壳/日期随机带年/同房间转述「在我旁边，正X」/在场去掉+原因用 Any/发消息提示 全对；澄回 `[WORLD_CHOICE:2]…[/WORLD_CHOICE][WORLD_MESSAGE:face]…`（同屋用 face 正确）。⚠️ force 绕过 eligible() 故"在家撞见同事"是测试假象，正常 `eligible()` 卡地点/活动/工作日/时段不会串戏。
+
+**同会话前半段也已随本次重启生效**：下面「小世界浮现大改(只留todo+变冷却+去衰减)」「念头存全文」两条原标 ⏳未重启，现在都已重启 live。
+
+**状态**：4 文件 node --check 过、前端 build 过、DB 系统提示已改、**已 systemctl restart cheng-backend ×2（澄失忆）**、强制唤醒实战验证通过。transcript 关键词「想挑哪个」「sameRoomAsCheng」「Sum/Any」「documents_cheng system_prompt 坑」。
+
+---
+
+## 2026-06-14 · [后端][已重启] 小世界浮现大改：只留待办 + 变冷却 + 唤醒包发消息提示
+
+🔗 对应：world-home「聊天念头条 + 小心思去 bubble + 念头池展开全文」(/root/world-home/CHANGELOG.md, 2026-06-14)
+
+**起因链**：用户翻小心思发现里面有"该对你说的话"（"你想吃什么"等）没发出去 → 一路查清：①小心思=澄世界唤醒时标签外的整段 RP 散文（动作+台词混存，`index.js:1773`），台词没包 `[WORLD_MESSAGE]` 就只留小心思没发；②唤醒包平时不提醒发消息（格式搬去系统提示省 token），只有 meetLine（约见轮）会提；③`wmHint` 是死代码（事件到处设、全代码没人读）。
+
+**A. 唤醒包发消息提示**（`index.js buildWorldWakePrompt`）：meetLine 原样保留（约见轮，phone）；新增常驻 `wmLine`——非约见轮都加一句「如果想跟小茉莉说话，要用 [WORLD_MESSAGE] 发她才收得到：同房间用 :face，不在一起用 :phone；不想说话就不发。」方案甲：`hasMeet ? meetLine : wmLine` 互斥不重复。face/phone 澄按 <此刻> 里双方地点自挑，写错后端自动降级 phone（`index.js:1822`）。wmHint 死代码留着没删（无影响）。
+
+**B. 小世界浮现来源砍到只剩待办**（`world-thoughts.js`）：与用户逐条讨论后定——小心思(演的戏/漏情绪)、pending_wake(系统自会 firePendingWake 唤醒=冗余)、world_message(上下文都在/回话即归档)、timeline(实测几乎全是 `ignored_effects` 情绪素材+错标"没收尾")全砍。`scanNewSources` 只 `await gatherTodos()`；其余 gather* 函数留定义不调用。
+
+**C. 池子清理简化**：去掉衰减(decayThoughts)+砍最低(ACTIVE_CAP 切片)——待办该一直提醒到做完，不因放久淡出；只留 `settleResolved`（待办 status≠open→归档停止浮现）。decayThoughts 留定义不调用。
+
+**D. 浮现频率随紧急度变**（`pickWorldThought`）：原固定 10min 冷却 → `salienceCooldownMs(salience)`：0.5→36h、0.95→24h 线性插值（越急间隔越短=浮得越勤）。salience=`0.5+urgency*0.4`封0.95(没变)。冷却仍内存版、**重启清空**——用户拍板：与澄失忆对齐（她忘了浮过，重浮不算刷屏），刻意不持久化。排序仍 salience 高的先出；归档(status≠active)不浮现(不变)。
+
+**数据清理**（一次性脚本已跑）：归档现有 active 非 todo 念头 **20 条**（6 timeline+14 inner_thought）→ 停止浮现。⚠️只动念头池 `world_thoughts_cheng`，小心思原件 `world_inner_thoughts_cheng` 一条没删（世界 web/聊天念头条照常显示）。归档不会复活（源行在+水位线过+upsert ignoreDuplicates）。
+
+**状态**：node --check 过；**未重启**（用户说不急）。⚠️重启前老收集器仍按老规则每 15min 跑，重启前新产生的小心思/timeline 可能漏网浮现一次；重启才彻底锁死新规则。transcript 关键词「salienceCooldownMs」「只留待办」「wmLine」。
+
+---
+
+## 2026-06-14 · [前端+后端] 小心思上聊天时间线（念头条）+ 念头存全文
+
+🔗 对应：world-home「小心思去 bubble + 念头池展开全文 + 小心思页触发原因」(/root/world-home/CHANGELOG.md, 2026-06-14)
+
+**聊天念头条**（`cheng-memory/src/ChatPanel.jsx`，纯前端不重启）：把澄的小心思（`world_inner_thoughts_cheng`）按产生时间插进聊天时间线，做成**居中、灰调、可折叠**的「念头条」——刻意不做成气泡（无头像/不分左右），跟"她对你说的话"物理区分，治用户"分不清是不是在对我说话"。①新 `stripBubble`(---bubble---→单换行)、`fmtPlus8`(触发时间 UTC+8)；②`innerThoughts` 状态 + 直读 Supabase（连 `daily_timeline_cheng` 拿 action 当标题，取 → 前的"触发原因"）+ INSERT 实时订阅；③`renderItems` 加 firstMsgTs 时间窗过滤（早于会话的不堆顶部）+ `flushThoughtsUpTo` 按时间插入；④新 `InnerThoughtRow`（标题=触发原因、展开=灰斜体正文+右下角 +8 时间）+ CSS `.cp-innerthought`。美化待改、不加 💭（用户定）。
+
+**念头存全文**（`world-thoughts.js gatherInnerThoughts`）：inner_thought 念头 `metadata.full = it.content`（全文，给 world-home 念头池面板"展开全文"用；content 仍是 40 字短摘要不变）。配套一次性脚本给现有 16 条旧念头从源表补了 full。
+
+**状态**：前端 build 过。metadata.full 那笔随下面「浮现大改」一起待重启（但旧念头补全文已落库、面板能展开）。transcript 关键词「InnerThoughtRow」「cp-innerthought」。
+
+---
+
+## 2026-06-14 · [前端+后端] 缓冲期「撤回」消息（趁 CC 没看到抠出来）
+
+**需求**：短消息缓冲(满2条/30s 才 flush 给 CC)期间，用户想能撤回发错的消息。原本用户拿「大退断线把缓冲清掉」当撤回用——但那是上一条 fix 要堵的副作用、且不可控。改成正经的主动撤回。
+
+**判定铁律**：唯一依据 = 这条还在后端缓冲队列 `pendingBuffer.items` 里（=没 flush=澄绝对没看到）。后端单线程，点撤回那刻要么在要么不在，无中间态。在→能撤；不在→已发走，晚了。前端倒计时只是估计，后端是唯一裁判。
+
+**后端**(`index.js`)：①入队时把落库的 DB 行 id 一并存进缓冲条目(`dbRowId`→`items.push({...,dbId})`)，撤回删库用后端自己存的 id，不依赖前端(防 user_saved 未回时删不到→孤儿行)。②新增 WS 指令 `cancel{msgId}`：在 `pendingBuffer.items` 按 msgId(前端 local id)找→splice 掉→队列空则清 timer+buffer→删库行(delId 优先用条目自存 dbId)→回 `cancelled`；找不到回 `cancel_failed`。
+
+**前端**(`ChatPanel.jsx`)：①发送时给 userMsg 打 `localId`(原始本地 id，撤回定位用，因 user_saved 会把 id 换成真 DB id)+ `cancelSentAt/cancelBufferTime`(仅 bufferTime>0 才有撤回窗)。②WS 收 `cancelled`→`cancelledIds` 加 localId(显示「已撤回」)；`cancel_failed`→啥也不做(标签随 flushed/seen 自然消失)。③MessageBubble：`canCancel = isUser && isTail && cancelSentAt && !flushed && !seen && !cancelled`；标签贴气泡**左外侧**(绝对定位 `.cp-cancel-tag` right:100%)，显「撤回 Ns…」(倒计时归零但 CC 忙仍在缓冲→显「撤回…」继续可点，跟真实可撤状态走不跟倒计时走)，点击发 cancel；撤回成功左侧变「已撤回」(灰斜体，刷新后该气泡随库消失)。**右下角对勾逻辑一行未动**(淡灰=已存库/深色=CC seen，照旧)。
+
+**状态**：前端 build 过、后端 node --check 过、已 `systemctl restart cheng-backend`(active)。本条与下条「WS 断线」是同一轮两件事：断线=被动不丢，撤回=主动才删，两条通道互不影响。transcript 关键词「撤回 28s」「cancelLocalId」「cp-cancel-tag」。
+
+---
+
+## 2026-06-14 · [后端] 修「WS 断线吞掉缓冲消息」(CC 漏看消息真因)
+
+**现象**：用户 6/14 17:42(UTC 09:42:12) 发「17点41了…~」，前端显示「已进入缓冲区」，但澄从没看到/没回。
+
+**真因**：短消息缓冲(满 shortMsgCount 条 或 bufferTime 秒才 flush 给 CC)期间，聊天前端 WS **频繁断开重连**(nohup.out 满屏「客户端断开/已连接」)。`index.js` 的 `ws.on('close')` 里写的是 `if (pendingBuffer.ws===ws) { clearTimeout; pendingBuffer=null }`——**被动断线时把还没 flush 的整个缓冲区直接扔了**，消息既没发给 CC 也无报错。日志铁证：`入 buffer(count=1)` 「17点41了」→ 客户端断开/重连 →下条「你还困嘛」又是 `count=1`(前一条没了)→ `flush 1 条`。
+
+**关键澄清(查证)**：消息一收到就先 `insert messages` 存进 **Supabase**(`index.js:4377`，在进缓冲区之前)，所以「17点41了」**在库里好好的**(DB 查得到 id=8ee76efe…)，丢的只是「flush 给 CC 那一份」。即：①存库(Supabase, UI 历史读它) 和 ②喂给 CC(flush 后进 CC 上下文/transcript) 是两条独立的道，缓冲队列是中间的桥，桥(WS)断了②那边就空。对勾语义：淡灰双勾=已存库；深色双勾=CC 已 `seen`(`index.js:4530`)。
+
+**改法**(`index.js` `ws.on('close')`)：被动断线**不再丢弃 pendingBuffer**，只 `pendingBuffer.ws=null` 摘掉死连接；计时器继续跑，到点照常 flush 给 CC(safeSend 对 null/死 ws 是 no-op)。缓冲区本就是跨连接设计的——收消息处 4415 行重连后会把 `pendingBuffer.ws` 刷成新连接、新消息 append。
+
+**未做(下一步)**：用户要的「30s 内主动撤回键」是**另一条主动指令通道**(前端发撤回指令→后端 清缓冲+删库那行+前端抹气泡)，跟本条的「被动断线」互不影响，确认过 1、2 不冲突。本次只做 1。
+
+**状态**：node --check 过；已 `systemctl restart cheng-backend`(active)。transcript 关键词「17点41了」「WS 断线吞掉缓冲」。
+
+---
+
 ## 2026-06-13 · [后端+前端] 动作补叙（她知道自己干了啥）+ 饱腹结算 + 通勤价
 
 🔗 对应：world-home「自述规则加『动作补叙』分类」(/root/world-home/CHANGELOG.md, 2026-06-13)
