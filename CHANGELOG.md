@@ -49,6 +49,13 @@
 
 **✅ 已部署并生产实测通过（2026-06-15）**：transition 重启后澄重生为 PID 531963、新代码写入 metadata（sid=e88102cb…、hash=06e6ad65…）；随后**连续 3 次 `systemctl restart cheng-backend`，澄 PID 全程 531963 不变**，每次日志均「复用已存在 cheng 会话」，会话 pane 仍是活的 claude UI，后端 active。即后端重启不再杀澄、不再失忆。
 
+**⚠️ 运维须知——唯一副作用「残留」+ 怎么彻底关澄（含顺序坑）**：
+- 副作用：因为后端退出故意不杀澄，`systemctl stop cheng-backend`（**停而不起**，不是 restart）后，澄 tmux 会话仍在后台活着、占 ~200MB 内存（"残留"）。**日常用不到**（聊天/失忆/forge/重启后端都不沾），只有"想让后端单独下线待着"这类少见运维才碰到；整机重启则所有进程一起死、无残留。
+- **想彻底关掉澄腾内存——顺序别反**：先 `systemctl stop cheng-backend` 再 `tmux kill-session -t cheng`。反过来（后端还开着就杀会话）→ node 看门狗 ~10s 自动拉一个**全新澄（失忆）**，内存没省下。
+- 想让澄回来：`systemctl start cheng-backend`（全新登场=失忆）。
+- 查残留：`sudo -u claude-user tmux ls`（列出 `cheng` 就是还活着）。
+- 单杀会话（后端在跑）= 强制失忆重生一条捷径，但更推荐走现成的失忆/forge，更干净。
+
 ## 2026-06-15 · [基建][⏳准备中·未改代码] 开工「改后端不重启CC」分支 + 备份 systemd service
 
 **这是一条准备/意图记录，代码还没动。给未来的我（或接手的 CC）：先看懂目标再下手。**
