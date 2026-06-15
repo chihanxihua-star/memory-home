@@ -15,6 +15,40 @@
 
 ---
 
+## 2026-06-15 · [后端] 修 dice 主动消息漏 [WORLD_MESSAGE] 裸标签（dice.js）
+
+**现象**：聊天主动唤醒（dice，event=dice）发出的消息里出现裸标签，例：`[WORLD_MESSAGE:phone]吃午饭了没[/WORLD_MESSAGE]`、`[WORLD_MESSAGE:face]晚饭吃了吗你`（甚至漏闭合）。世界唤醒不受影响，只有 dice 这条。
+
+**真因（两层）**：
+- 根因：dice 提示词是"好久没跟小茉莉说话了，想说就说"，语义上=主动给小茉莉发消息；而系统提示「世界唤醒区」教澄"想跟小茉莉说话用 [WORLD_MESSAGE:phone]（同地点 face）"。虽然那段写明"只在世界唤醒用"，但 dice 这句太像世界消息触发，澄就套用了（连 phone/face 地点规则都套对了）。
+- 直接原因：`[WORLD_MESSAGE]` 的解析/清洗只写在世界唤醒 turn-done 里；dice 走 `handleDiceTurnDone`，只洗 `[SKIP]`/`---bubble---`，不碰 WORLD_MESSAGE → 原样存库(`content: text`)+广播+Bark 推送都带壳。
+
+**改法**：`dice.js handleDiceTurnDone` 开头一行，把 `text` 里 `[WORLD_MESSAGE:phone|face]` 与 `[/WORLD_MESSAGE]` 壳剥掉、**保留内文**（正则 `/\[\/?WORLD_MESSAGE(?::(?:phone|face))?\]/gi`，顺带兜住裸标签/漏闭合）。`text` 在顶部就清洗，下游 clean/body/存库/广播全复用，一处改全管。按用户决定**只剥 WORLD_MESSAGE 这一种**；TODO/MOVE/OPEN_TODOS 等 dice 实测用不到，不处理。`node -c` 通过。**需重启 cheng-backend 生效**（当前「改后端不重启cc」分支：纯后端改动重启复用旧 tmux 会话，澄不失忆）。
+
+---
+
+## 2026-06-15 · [后端] 12B-3 作废 + 12B 念头池 v1 正式冻结（只加注释/文档，无逻辑改动）
+
+**决定**：「7 个后台驱动排序器」(12B-3) spec 作废，**不做**。12B 念头池到此收尾，下一步转去身体状态 + 健康联动。
+
+**作废原因（对着代码核实过）**：
+- `scanNewSources` 现在只调 `gatherTodos()`，只产 `unresolved_intent` 一类；timeline / inner_thought / pending / world_message 来源是**主动移除**的（world-thoughts.js:107-109 注释），不恢复。
+- `decayThoughts` 是**主动关闭**的（待办要一直提醒到做完，不因时间褪色），collectWorldThoughts 不调它。
+- 候选念头全属同一 category 时，类别驱动给所有念头加**相同权重**，不改变排序 = 空转。不为铺"驱动地基"提前建无效表，也不为它复活已删数据源 / decay。
+
+**12B 念头池 v1 冻结范围（一句话）**：念头池 v1 当前只承担"未完成待办的跨窗口保留 + 克制浮现"，**不**承担完整生活事件池或情绪驱动功能。
+- 数据源：`phone_todos_cheng` 未完成待办｜category：`unresolved_intent`｜content：自然事实句
+- 排序：现有 base salience｜防重复：现有 24–36h base-salience 浮动冷却｜收尾：待办完成后 collector archive 对应 thought
+- Claude：每轮最多看到一条 `<小世界浮现>` 自然事实
+- **不做**：decay / drive table / effective_score / proposed decay multiplier；**不恢复**其他 collector；不接 AI Emotion 第六阶段；不写旧感受字段
+
+**本次实际改了什么**（纯注释/文档，零逻辑）：
+- `world-thoughts.js` 头部加「12B v1 冻结范围」说明块。
+- 5 个未调用函数 `gatherTimeline / gatherInnerThoughts / gatherPending / gatherWorldMessage / decayThoughts` 各加一行 `⚠️【disabled by current design / not called · 12B v1】…保留代码仅备查，不是漏接/故障`，防后续开发者误判漏接/故障。
+- `node -c` 通过。**不需重启**（纯注释，运行态不受影响）。
+
+---
+
 ## 2026-06-15 · [后端+基建] 「改后端不重启CC」实现：后端重启探活复用旧澄会话，澄不失忆
 
 **目标**：以前改后端代码 `systemctl restart cheng-backend` 会杀掉 tmux 里的澄会话→失忆。现在普通后端重启**接管现存会话**，澄不失忆；只有换模型/换配置/失忆时才真重起。分支 `改后端不重启cc`（server 子模块，从 `tmux-migration` 切出）。审查见同会话 root transcript（另一模型逐条 review，关键词「config-changed」「孤儿轮」）。
