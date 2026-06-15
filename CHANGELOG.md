@@ -15,6 +15,28 @@
 
 ---
 
+## 2026-06-15 · [后端] 13B 健康联动最小引擎上线（新表 world_health_state_cheng + world-health.js + world-tick.js）
+
+**做了什么**：health 从"钉死在 85 的静态值"变成**慢变量**——身体状态【长期】异常才缓慢扣，【持续】稳定才缓慢回。挂在 world tick 上，每世界小时（每 tick）结算一次。
+
+**新表**（Supabase 已建 migration `create_world_health_state_cheng`，单行 `name='澄'`，RLS 照抄世界表三条全放行 read/insert/update）：
+`world_health_state_cheng`：low_energy_hours / low_satiety_hours / low_cleanliness_hours / stable_body_hours / last_health_delta / last_health_reason / last_evaluated_tick_id / last_evaluated_world_time / last_evaluated_at + 时间戳。存"引擎内部持续计时+最近结算"，不污染 character_status_cheng（后者只存可见身体值）。
+
+**规则**（阈值集中在 world-health.js 顶部）：
+- 连续低值：energy<10 / satiety<10 连续 6 世界小时 → health −1（之后每再满 6h 再 −1）；cleanliness<15 连续 24h → −1（每再满 24h）。中断即计数清零。
+- 分段回血：energy/satiety/cleanliness 三项都 ≥30 算"稳定"；health<85 连续稳定 12h → +1，health≥85 需 24h → +1；回血即重置稳定计时；上限 100。`HEALTH_BASELINE=85`。
+- 单 tick 最多 −2（防三条件同 tick 到期骤降 −3）；扣血的 tick 不回血（且 drop 需<30、stable 需≥30，结构上互斥）。
+- 用 tick 衰减【后】的值判断；health 钳 0–100；只有 health 真变才写 timeline（纯计数累计只更新状态表）。
+- 本版**不做**随机生病/受伤/治疗/睡觉回血；吃饭/洗澡/工作仍不直接动 health（health 只由本引擎结算）。
+
+**幂等 + 并发**：`advanceOneTick` 每轮生成一个唯一 `tickId`（crypto.randomUUID），衰减行程+健康联动共用；health_state 用 `last_evaluated_tick_id` 守门（or(is null, neq) 条件 UPDATE，0 行=已结算→跳过），且把 `advanceOneTick` 套链式串行锁，让自动 tick(daemon) 和 force tick(`POST /api/world/tick`) 共用一把锁（v1 单进程够；多进程以后换事务/RPC）。
+
+**顺带修**：world-tick.js 自然衰减行程 detail 把 satiety `−3` 改成真实 `−2`（只修日志，不改衰减数值），并带上 tick_id。
+
+**验证**：写了 16 项引擎测试（打真实 DB 引擎、跑完恢复现场）全过：幂等/连续扣血/封顶−2/清零/分段回血/扣血不回血。`node -c` 通过。**需重启 cheng-backend 生效**（改后端不重启cc 分支，澄不失忆）。⚠️ 注意：world tick 当前 `world_tick_enabled:false`（开发期暂停），引擎要等 tick 打开才会自动跑；force tick 端点会立即触发。换 VPS 记得这张新表在 Supabase 云、随库走。
+
+---
+
 ## 2026-06-15 · [后端] 修 dice 主动消息漏 [WORLD_MESSAGE] 裸标签（dice.js）
 
 **现象**：聊天主动唤醒（dice，event=dice）发出的消息里出现裸标签，例：`[WORLD_MESSAGE:phone]吃午饭了没[/WORLD_MESSAGE]`、`[WORLD_MESSAGE:face]晚饭吃了吗你`（甚至漏闭合）。世界唤醒不受影响，只有 dice 这条。
