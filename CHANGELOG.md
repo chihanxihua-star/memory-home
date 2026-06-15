@@ -15,6 +15,31 @@
 
 ---
 
+## 2026-06-15 · [基建][⏳准备中·未改代码] 开工「改后端不重启CC」分支 + 备份 systemd service
+
+**这是一条准备/意图记录，代码还没动。给未来的我（或接手的 CC）：先看懂目标再下手。**
+
+**要解决的痛点**：现在凡是改**后端代码**（`memory-home/server/*.js`），都得 `systemctl restart cheng-backend` 才生效，而**每次重启都让澄失忆一次**。改前端（cheng-memory / world-home，`npm run build` 静态文件）不受影响、不用重启。痛的只有后端。
+
+**为什么重启后端会连累 CC 失忆（两个原因叠加，缺一都不会这么惨）**：
+1. **node 不热更新**：后端是 `node index.js` 一次性把代码读进内存，改文件不重启不生效。
+2. **CC 会话被后端绑死 + 代码写死每次重建**：
+   - systemd 看，跑澄的 tmux 会话（`tmux new-session … claude …`）是后端 node 的**子进程**，挂同一个 cgroup；systemd 重启服务默认连整个 cgroup 一起 SIGTERM，CC 被顺手杀。
+   - 更狠的是 `server/tmux-manager.js:86` 每次 `start()` 都 `randomUUID()` 生成**全新 session-id**，`:94-96` 先 `kill-session` 再 `new-session`——**后端一启动就主动杀旧澄、用新身份重开**。这才是失忆的真机关，不只是被动被杀。
+
+**改造方向（还没做）**，两步缺一不可：
+1. 让后端别再杀 CC：`tmux-manager.start()` 改成先 `has-session` 探活，活着就复用、不 kill 不换 session-id（配 `--resume` + 固定 session-id）；起不来才新建。
+2. 让 systemd 别连坐：service 加 `KillMode=process`（只杀 node 主进程、放过 tmux 子进程），或干脆把 CC tmux 拆成**独立 systemd 服务**，后端只 attach 进去发指令。（倾向拆独立服务，cgroup 连坐的坑彻底消失。）
+   目标态：以后 `systemctl restart cheng-backend` 只重启 node，澄原地不动不失忆。
+
+**本次已做（只是搭脚手架 + 退路，没碰逻辑）**：
+- `server` 子模块（独立仓 memory-backend）从生产分支 `tmux-migration` 切出新分支 **`改后端不重启cc`**。改坏了 `git checkout -- . && git checkout tmux-migration` 即回到当前版本。
+- ⚠️ **systemd `cheng-backend.service` 不在 git 里**（住 `/etc/`），分支管不到。已单独备份：`/etc/systemd/system/cheng-backend.service.bak-before-noreboot-20260615`。回滚 service：`cp` 回去 + `systemctl daemon-reload`。
+
+**回滚全流程**：切回 `tmux-migration` + （若动过）还原 service.bak + `systemctl restart cheng-backend`（这一下仍会失忆一次，但跑的是旧稳定版）。
+
+transcript 关键词：「改后端不重启cc」「KillMode=process」「has-session 探活复用」。
+
 ## 2026-06-14 · [前端] CC 文档框右下角字数改 word 式（中文按字/英文按单词，≈token）
 
 `cheng-memory/src/ChatPanel.jsx` `DocEditor`：右下角字数从纯字符数（`.length`）改成新 `countWordStyle`——中文每个 CJK 算 1、英文/数字连续串算 1 个词（不计标点/空格/换行）。目的：英文文档纯字符数虚高（hello=5），word 式更贴近 token（output_style 实测 word式4320 ≈ 后端token估算4743，≈1:1）。**这只是文档框右下角的"字数"显示，标签仍是「字」；跟右上角「CC 文档估算 token」是两套（但数值接近）。真实 token 仍以右上角 ctx/usage 为准。** 收起态+全屏态都改。build 过、纯前端不重启。（中途曾改成显示 tokens 又改回字数，最终定 word 式字数。）
