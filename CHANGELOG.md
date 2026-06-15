@@ -15,6 +15,24 @@
 
 ---
 
+## 2026-06-15 · [后端] 共同移动标签 [MOVE_BOTH]（新模块 world-move.js + index.js；为睡眠链铺位置同步）
+
+**做了什么**：聊天里澄和小茉莉【已经】一起换地方时（抱着进卧室/牵着去厨房），一个标签同时更新两人位置，解决"正文一起到卧室了、状态栏小茉莉还在原处"的不同步。只改 location/activity，**不结算数值、不代表进入睡眠**（睡眠链以后单独做，可复用这步的位置同步）。
+
+**标签**：`[MOVE_BOTH:地点|澄行为|小茉莉行为]`，单行、段间用 `|`（地点/行为本身可能含 `·`，故不用 `·`）。沿用 MOVE 家族、复用 `processChatMoveTag`（出现 MOVE_BOTH 就只走它）；不另建第二套解析。例：`[MOVE_BOTH:卧室|抱着小茉莉躺下|靠在澄怀里]`。
+
+**校验（全在 world-move.js processJointMove）**：① 同栋楼（跨楼忽略）② 小茉莉 presence 必须在场（不在家/外出/离线拒绝）③ 两人当前必须同地点（"抱着一起去"=从同一房间一起挪）④ 轻量防旧覆盖（本轮回复开始后小茉莉被手动改过=updated_at 更晚→拒绝覆盖她，手动优先）。只认明确标签、后端不猜正文。
+
+**写入**：先更新澄、再更新小茉莉（presence 不动），小茉莉失败则**回滚澄**避免位置分裂（无事务，v1 顺序写+失败检测，跟现有风格一致，没上 RPC）；同 move_id；写一条 timeline(source=action, via=joint_move)。澄行为复用 scheduleActivityEnd 收尾，小茉莉作息另管不排。
+
+**重构**：把 `CHAT_MOVE_LOCATIONS` 白名单 + 新 `resolveMoveRoom` + `processJointMove` 抽到新模块 `world-move.js`（单人 MOVE 仍在 index.js，import 共用白名单），index.js 更清爽、也好测。MOVE_BOTH 标签也加进聊天/世界轮的剥离正则（`[MOVE(?:_BOTH)?:...]`）防泄漏给小茉莉看。
+
+**验证**：15 项 processJointMove 测试（打真实 DB、跑完恢复现场+清理测试 pending/timeline）全过：合法移动/不同地点拒/不在家拒/跨楼拒/防旧覆盖拒/未知地点/缺行为默认。`node -c` 通过。
+
+**⚠️ 还差系统提示（未做，要澄失忆）**：得在 system_prompt「③聊天专用」段（紧跟现有 [MOVE] 那段）加一段教澄何时输出 [MOVE_BOTH]（只在共同移动**已发生**时用，邀请/约/等会儿**不用**）。改 system_prompt = CC 真重启 = 澄失忆，故跟后端分开、留给用户定时机。**在加这段提示前，本功能后端就绪但休眠**（澄不会主动发这个标签）。
+
+---
+
 ## 2026-06-15 · [后端] 13B 健康联动最小引擎上线（新表 world_health_state_cheng + world-health.js + world-tick.js）
 
 **做了什么**：health 从"钉死在 85 的静态值"变成**慢变量**——身体状态【长期】异常才缓慢扣，【持续】稳定才缓慢回。挂在 world tick 上，每世界小时（每 tick）结算一次。
