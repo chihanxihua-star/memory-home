@@ -15,6 +15,111 @@
 
 ---
 
+## 2026-06-16 · [前端] 修聊天清屏后小心思仍残留（cheng-memory ChatPanel.jsx）
+
+**现象**：聊天点「新对话（清屏）」后聊天记录清了，但屏幕上还留着一堆小心思（澄的世界唤醒念头）。
+
+**根因**：`newChat` 清了 messages 没清/没隔离 innerThoughts；渲染合并里截断逻辑是「`firstMsgTs == null` 就放行全部小心思」——清屏后消息空了→firstMsgTs=null→历史小心思被全量 dump 到空屏。
+
+**修**：加 `convStartTs` 状态，清屏时戳 `Date.now()`；渲染截断点改成 `firstMsgTs != null ? firstMsgTs : (convStartTs || Infinity)`——有消息按首条消息时间，空会话按清屏时刻（旧的不显示、清屏后新冒的照常显示），首次加载本来就空的会话则 Infinity 不 dump。useMemo 依赖加 convStartTs。纯前端，`npm run build`，不重启。
+
+---
+
+## 2026-06-16 · [后端+前端+迁移] 14B-1 梦境生命周期接完（spec 1–8）：调度→睡中生成→醒来定记忆→残留注入（新模块 world-dream.js + 2 表 + world-sleep/inject/index.js + DevPanel）
+
+🔗 对应：world-home「梦境生命周期 DevPanel 测试区」(/root/world-home/CHANGELOG.md, 2026-06-16)
+
+**做了什么**：把上一条只能手测的"梦生成"真正接进睡眠——澄 night 睡觉会自动安排/做梦，醒来按概率记得一点，那点会在下次聊天/世界唤醒里以 `<梦境残留>` 给她一次。完成 ChatGPT 14B-1 spec 的剩余 1–8 项。
+
+**新表/字段**：① `world_sleep_state_cheng` 加 `sleep_session_id`（一轮睡眠一个 UUID，入睡时生成，梦/记录都绑它）；② `world_dreams_cheng`（梦主表：sleep_session_id 唯一/dream_status/dream_type/trigger_after_hours/occurred_after_hours/full_dream/recall_variants/recall_level/recalled_content/wake_reason/source_snapshot/surfaced_at，RLS+3策略）；③ `world_dream_week_state_cheng`（单行：week_key/target_count/generated_count，每周目标 2–4，RLS）。
+
+**生命周期（全在新模块 world-dream.js）**：
+- **调度** `maybeScheduleDream`：入睡时调（world-sleep.enterSleep，**仅 night**）。可用时长<3h 不排（工作日按入睡→8点、非工作日按 planned_hours）；本周超目标不排；概率=剩余目标/本周剩余晚数（越到周末越高，Asia/Shanghai 自然周）；触发点取睡满 `[2, 可用-1]` 随机小时，插 scheduled 梦行。
+- **触发生成** `triggerDreamIfDue`：每睡眠 tick（world-sleep.evaluateSleepTick 非醒分支）调，睡满≥trigger 且 scheduled → 调 `generateDream`（GLM，几秒，跑在 tick 串行链里不并发）→ 存 full_dream+四版本、status=generated、周计数+1、写 `action=做梦` timeline（**完整梦不进 timeline/不进 Claude**）；失败=cancelled，不计数、不连累睡眠。
+- **醒来定记忆** `onWake`：所有醒来路径（自动醒/[WAKE]/闹钟，world-sleep 三处）调。generated→按概率抽 recall_level（基础 full15/partial45/trace30/forgotten10；`morning_alarm` 降记忆、`manual` 且梦后1h内升记忆）+ recalled_content，status=recalled；scheduled（没睡到触发点就醒）→ cancelled。
+- **残留注入** `consumeDreamResidue`：取一条 recalled 的 recalled_content、原子标 surfaced（**只注入一次**）。聊天侧 inject.js 加 `<梦境残留>` 块（`<此刻>` 后）；世界唤醒侧 buildWorldWakePrompt 加 `<梦境残留>`（消费放在 cc-busy/冷却检查之后、确定要发才消费，避免白白丢内容）。哪条通道先用哪条消费。
+
+**full_dream 可见范围**：只库 + DevPanel（给小茉莉看）；**永不进** Claude prompt / `<记忆浮现>` / `<小世界浮现>` / `<此刻>` / timeline detail / 长期记忆。澄只看 recalled_content。
+
+**DevPanel（设置·调试板块）**：梦境测试区——排梦/触发生成/模拟四种醒来(full/partial/trace/forgotten)/看状态(status/dream_type/recall_level/是否已注入/recalled_content/完整梦)。端点 `/api/world/dream/state|dev/schedule|dev/trigger|dev/recall`。
+
+**验证**：状态机集成测试 **12/12 过**（排梦 night/nap/可用<3h、工作日入睡可用算法、醒来 recall+内容匹配、没触发就醒=cancelled、闹钟醒也 recall、残留只消费一次并标 surfaced）。生成(GLM API)那段需用户在「梦境」板块填 key，DevPanel"触发生成"实测。重启 cheng-backend **复用会话不失忆**、无报错。
+
+**⚠️ 待真实验**：world tick 仍关着——澄实际"睡觉自动做梦→醒来想起"要等开 tick 跑通端到端；现在 DevPanel 能手动走完整条状态机。erotic 身体反应/晨勃/半夜醒=14B-2（未做）。
+
+**同日修（DevPanel 测试踩坑）**：① `world_dreams_cheng` 漏建 **DELETE 策略** → 测试残留行 RLS 删不掉、dev 梦会堆积；补 `wd_delete`(true) + 清掉 test-dream 残留。② dev"醒来记得"原来只认 `generated`，点一次 full 变 recalled 后再点 partial 就报"没有 generated 的梦"——其实是真实逻辑(醒来只 recall 一次)，但 dev 要对比 4 版本卡住；改成 `generated/recalled` 都能反复切 level。③ DevPanel 直接展示四个记忆版本(full/partial/trace/forgotten)对比，不用挨个点。另注：GLM 实测会自选 `erotic` dream_type，想多出 normal 回头在提示词引导（非 bug）。④ 加只读接口 `GET /api/world/dream/list`（列 generated/recalled/surfaced 的梦，含 full_dream+四版本）给 world-home 的梦境收藏馆用——只读既有表 world_dreams_cheng，不建表。⑤ **provider 兜底 + 记录生成者**：generateDream 先用配置 provider(cfg.model)，失败自动换另一个【有 key 的】provider(用其 defaultModel：glm-4-flash/deepseek-chat)顶上，每个 provider 内部仍解析失败重试一次；梦表加 `generated_by`(provider/model)，收藏馆卡片显示"由 X 生成"。PROVIDERS 加 defaultModel；callProvider 改签名 (provider,model,cfg,text)。⑥ **素材可视+可控**（解决"梦老是厨房/吃的"——她 timeline 本就吃饭多）：配置表加 `material_exclude`(排除词)+`material_extra`(额外素材)；gatherDreamMaterial 读配置，含排除词的事件/地点/待办滤掉、额外素材逐行附上；加只读 `GET /api/world/dream/material` 预览；config POST 白名单加这俩字段；「梦境」设置子页加素材区（实时预览喂了啥 + 排除词/额外素材两个 textarea，存配置即生效）。⑦ **掺长期记忆(涟漪)当素材**（进一步丰富主题）：配置加 `material_use_memory`(默认开)；gatherDreamMaterial 从 `memories_cheng` 近 40 条池里**随机抽 1–3 条**（只取 summary/content 文本，**不碰 valence/arousal 等感受数字**，过排除词+截断 120 字）当"记忆片段"喂；设置页加开关 + 预览显示。注意：记忆里亲密内容会让梦偏绮梦（随机所以时有时无）。⑧ **有她/无她硬隔离（三份提示词 + 分支素材）**：用户实测 15/15 梦全有小茉莉——根因是加了记忆后"记忆全关于她"，光靠提示词压不住。改成：配置加 `prompt_self`(有她)/`prompt_other`(无她硬性)/`self_pct`(有她占比默认35,网页滑块可调)；generateDream 掷骰 self_pct% 选支 → 系统提示=底座(system_prompt)+分支片段；**素材也分支**——gatherDreamMaterial 加 `opts.excludeUser`，无她支**砍掉记忆 + 过滤含"小茉莉/茉莉"的事件/地点/待办**，从源头断她的料（实测无她支记忆0、含她事件0）。callProvider 改签名收 systemPrompt+temperature。梦表加 `about_me`，收藏馆卡片显示"有小茉莉/无小茉莉"。⑨ 建好 tag 共享表 `world_dream_tags_cheng` 当"老虎机↔梦境"的数据契约（**两层**：`category`=梦类型 日常/梦幻/怪诞/春梦 + `dimension`=该类型下的侧面，如 日常:场景/天气、春梦:体位/场景/…；外加 tag/en/ja/nsfw/enabled，RLS+4策略+dimension）。抽取=选定 category→它每个 dimension 各随机抽 1 个 tag（拼 3-4 个），正是老虎机"一维度抽一个"机制按类型复制。老虎机(用户找 Codex 改开源转盘 Ruota-della-Fortuna)往表里存/管 tag、按 nsfw 分红绿；梦境后端独立从表抽、不互调。下一步（未做）：梦境后端选支定 category→每 dimension 抽 1 个喂梦 + 网页 tag 编辑器。
+
+transcript 关键词：`world-dream.js` / `maybeScheduleDream` / `consumeDreamResidue` / `梦境残留` / `wd_delete` / session 1149ff79。
+
+---
+
+## 2026-06-16 · [后端+迁移] 14B-1 梦境生成（部分）：独立 API 调用 + 网页可配（新模块 world-dream-gen.js + 新表 world_dream_config_cheng + index.js 端点）
+
+🔗 对应：world-home「梦境板块（第3个 tab）」(/root/world-home/CHANGELOG.md, 2026-06-16)
+
+**背景/取舍**：14B-1 梦境链需要"后台独立生成一个梦"。澄是 tmux 里的交互式 CC，没有现成的后台 Claude 调用通道；用户决定**用独立的第三方 API（先 GLM/智谱）生成梦**，跟澄的会话完全分开、无状态、不累计上下文、便宜。provider 做成可换（GLM/DeepSeek 都是 OpenAI 兼容接口）。
+
+**本次只做了 14B-1 的"生成+配置+测试"这截**，还没接睡眠调度/醒来记忆程度/<梦境残留>注入（见下方"还没做"）。
+
+**怎么生成**：新模块 `world-dream-gen.js`——
+- `PROVIDERS` 映射 provider→{OpenAI 兼容基址, .env key 名}：glm=`open.bigmodel.cn/api/paas/v4/chat/completions`+`GLM_API_KEY`；deepseek=`api.deepseek.com`+`DEEPSEEK_API_KEY`。换 provider 只改配置表字段、代码不动。
+- `gatherDreamMaterial()`：近 7 天素材，**有限量**——timeline 事件去 tick/衰减噪音去重取 ~12、未完成待办 ~6、近期物品/地点、天气日期。**不读 mood/longing 等旧感受字段**（同 12A 止血）。
+- `generateDream()`：system(提示词)+user(素材) → 带 `response_format:json_object` + temperature 调用 → `JSON.parse` 校验四版本(full/partial/trace/forgotten)+full_dream → **失败重试一次**，再失败抛错（调用方只 warning，不连累睡眠/tick）。Node 20 全局 fetch。
+
+**配置（网页可改，即时生效不重启）**：新表 `world_dream_config_cheng`（单行：provider/model/system_prompt/temperature/enabled），RLS+3 策略（wdc_*）。默认 provider=glm、model=glm-4-flash、temperature=1.3、enabled=true，**默认梦境提示词已 seed**（第一人称/允许跳脱/借素材重组/不分析含义/350–500字/erotic仅成年人/输出四记忆版本 JSON）。
+
+**key 安全**：API key **存 .env 不进库、前端不回显**——因世界表 RLS 全 true、前端能读，key 进表=泄漏。新增通用 `setEnvVar(name,value)`（写 .env + 同步 process.env 立即生效），网页保存 key 走它。
+
+**端点**：`GET /api/world/dream/config`（返配置+providers+各 key 是否已配，不返 key 本身）、`POST /api/world/dream/config`（白名单字段）、`POST /api/world/dream/key{provider,key}`（写 .env）、`POST /api/world/dream/test`（用当前配置+key 立即生成一段梦返回，不持久化不注入澄）。
+
+**验证**：node --check 过；重启 cheng-backend **复用会话不失忆**。真实生成要等用户在网页「梦境」板块填入 GLM key 后点"测试生成"验。
+
+**⚠️ 还没做（14B-1 剩余）**：① `world_dreams_cheng` + `world_dream_week_state_cheng` 两表；② night 睡眠开始时调度梦（每周 2–4、睡满≥3h才排、随机某 tick 触发、提前醒未触发=cancelled）；③ 醒来时按概率定 recall_level（morning_alarm 降记忆/提前醒升记忆）；④ `<梦境残留>` 在下一次聊天/世界唤醒注入一次；⑤ sleep_session_id 加进 world_sleep_state；⑥ DevPanel 梦境生命周期测试。erotic 身体反应/晨勃/半夜醒=14B-2。
+
+**同日修（素材偏见）**：用户实测梦"大部分都在厨房"。查 `gatherDreamMaterial` 喂的料：① `world_items_cheng` 是外卖/便利店**目录**(基本全食物)，当"最近物品"喂→梦全是吃/厨房——**去掉 items 不再喂**；② 事件被当天测睡眠的机制日志污染(入睡/醒来/午睡/健康升降)——加 `SKIP_PATTERN` 过滤这些 + 按去括注后的核心动作去重 + 地点去掉"外出·路上"过场。修完素材变成通勤/上班/加班/午休/回家等真实生活事件，厨房不再刷屏。
+
+transcript 关键词：`world-dream-gen` / `world_dream_config_cheng` / `gatherDreamMaterial` / session 1149ff79。
+
+---
+
+## 2026-06-16 · [后端+前端+迁移] 14A 基础睡眠链 + 早晨赖床改造（新模块 world-sleep.js + world-tick/index.js + world-home DevPanel + 新表 world_sleep_state_cheng）
+
+🔗 对应：world-home「14A 睡眠 DevPanel 测试按钮」(/root/world-home/CHANGELOG.md, 2026-06-16)
+
+**做了什么**：给澄加"睡觉"。澄在聊天里**自己**决定睡不睡/睡多久（输出标签），后端只认标签、持久化、每 world tick 回体力、按规则到点醒。**不催不提醒不强制**。本版只做基础睡眠，**不碰**梦境/春梦/晨勃/睡眠质量/半夜醒来/小茉莉身体值结算。设计经 root 反复聊定（见 memory `project-world-sleep-morning`）。
+
+**标签（聊天专属，沿用 MOVE 家族，仅聊天轮解析，写完从展示文本剥掉防漏给小茉莉）**：
+- `[SLEEP:Nh]` 独自睡 / `[SLEEP_BOTH:Nh]` 和小茉莉一起睡 / `[WAKE]` 提前醒。N=整数 1–12 世界小时（越界钳、非法忽略，后端只校验范围不替澄选时长）。
+- 解析在 index.js `processChatSleepTag`，**在 `processChatMoveTag` 之后调**（同回复先移动再睡）；逻辑全在新模块 `world-sleep.js`。
+
+**kind 自动判（决定地点白名单）**：`world_time` 21:00–05:59=night，其余=nap。
+- night（正经睡）许 `家·卧室 / 家·客厅 / 公司·澄休息室`；nap（午睡）再放宽 `+工位/茶水间`。地点不许=warn 拒绝、聊天不崩。（6/16 root 追加客厅进 night。）
+
+**tick 结算（world-tick.js _advanceOneTick）**：睡着时这 tick 体力 `-2 衰减 +10 睡眠 = 净 +8`（饱腹仍 -2、清洁仍 -1，全钳 0–100）；睡眠结算（slept+1/remaining-1/到点醒）在体力恢复**之后**、健康引擎**之前**——健康引擎读的是睡后最终值。幂等复用同一 `tickId`（`last_processed_tick_id`）。澄睡着时 **tick 跳过随机/饥饿/工作事件检测**（不被吵醒）；但 `workdayTick` 上下班闹铃照跑（那是兜底）。
+
+**醒来分两套（root 6/16 定）**：
+- nap：到点靠倒计时自己醒（没午睡闹钟）。
+- night：**工作日靠早 8 点 `morning_wakeup` 闹钟叫醒，倒计时不触发醒**；非工作日才用倒计时。工作日判断内联 `world_environment_cheng.weekday`（避免 import world-workday 的循环依赖）。
+- 自动醒/闹钟醒：activity=刚醒、**不调 Claude/不发 Bark/不替小茉莉醒**；`[WAKE]`=手动提前醒（本来就醒=忽略不报错）。`morning_wakeup` fire 时先 `wakeIfSleeping('morning_alarm')` 把 night 睡过点的澄拽起来（"工作日闹钟优先"落地）。
+- timeline 只在 开始睡/自动醒/提前醒 三时刻写（中间每小时不写，避免刷屏）。
+
+**早晨赖床改造（index.js firePendingWake morning_wakeup）**：
+- **赖 2 次封顶**：pending payload 带 `snooze_count`，初次闹钟=0→给 再睡/翘班/起床；选再睡 +1。第 3 次闹钟（count≥2）**不再给"再睡"**，换成 起床坐地铁（迟到扣¥45）/翘班（扣120）/起床打车（不迟到），reason="马上要上班迟到了"。
+- **迟到 flat 判定不按分钟算**：打车=判不迟到不罚（车费¥25-30）、地铁=判迟到 `effects:{wallet_balance:-45}`（票价¥3）。打车选项垫底当解析失败兜底（到岗、无罚款，最安全）。
+- 第 3 次走 `buildMorningRoutine(..., rush=true)`：**跳过早饭 + 通勤选择**（cm 由选项强制），穿衣→洗漱→直接通勤；打车 rush 各通勤步取最快固定分钟（dur 收成 [lo,lo]，纯表现）。`rush` 经 routine_opts→advanceRoutine→routine_step pending 全程透传。
+
+**新表**：`world_sleep_state_cheng`（单行 name='澄'，status/sleep_kind/planned_hours/slept_hours/remaining_hours/with_user/started_at/started_world_time/wake_reason/last_processed_tick_id/时间戳），RLS + 3 策略（wss_read/insert/update 全 true，照 world_health_state_cheng）。后端用 sb_publishable anon key 受 RLS，故必须加策略。
+
+**测试端点 + DevPanel**：`GET /api/world/sleep`、`POST /api/world/sleep/start{hours,both}`、`/sleep/wake`、`/sleep/tick`；world-home DevPanel 加"睡眠测试"区（澄睡1h/8h/两人8h/提前醒/推进1睡眠tick + 实时显示睡眠状态）。
+
+**验证**：直接 import 模块跑真实 DB 集成测试 **21/21 通过**（快照 live 状态测完还原）：地点白名单 night/nap、净+8、nap自动醒、night工作日不醒/非工作日醒、tick 幂等、SLEEP_BOTH 同地点/在场校验、WAKE、wakeIfSleeping、时长钳位。重启 cheng-backend **复用 tmux 会话不失忆**（系统提示没动）、无报错。
+
+**⚠️ 还没做（故意）**：① **系统提示词没教澄 SLEEP 标签**——文案备好了但没灌（灌=改系统提示=澄失忆），等 root 攒着一起重启那次才生效。所以现在澄还不知道能睡，引擎只能 DevPanel 测。② world tick 仍关着，端到端（advanceOneTick→睡眠结算）等开 tick 实地验。③ 周末日程、翘班后续动作链=仍待办，本次没碰。
+
+transcript 关键词：`processChatSleepTag` / `world-sleep.js` / `赖2次封顶` / session 1149ff79。
+
+---
+
 ## 2026-06-15 · [后端+基建] dice 安静时段真生效 + 轮询上限 120→1440 分钟（dice.js + forge-reload/config.json）
 
 **背景**：用户发现 dice（聊天主动唤醒）夜里也可能打扰。排查发现 `dice_quiet_hours:[1,8]`（+8 凌晨1–8点不打扰）**是死配置**——`getLocalHour()` 定义了从没被调用，`dice_quiet_hours` 只在 `/api/dice/config` 回给前端显示，`_roll()` 里压根没查时段。（另：dice 没"没启动"，是日志在 `nohup.out` 不在 journalctl；守护正常起，只是 120 分钟计时被当晚多次重启反复重置，没到点。）
