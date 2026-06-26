@@ -15,6 +15,173 @@
 
 ---
 
+## 2026-06-26 · [后端] dice 倒计时跨重启续命（治"重启勤→澄永远不被主动唤醒"）
+
+**现象**：用户反映澄好久没被主动唤醒。排查根因有两条配置（不是坏了）：① `/root/forge-reload/config.json` 里 `dice_interval_min/max` 都被设成 **1440 分钟（24h）**；② 世界时钟关着（`[WORLD] 世界时钟关闭，不启动`，本条没动它）。而真正让 dice **永远不触发**的是：dice 下次触发时间只存在内存 `setTimeout` 里，`start()`/`_scheduleNext()` 每次后端重启都**从头重算满一轮**（dice.js 旧 `start()`→`_scheduleNext()`）。用户后端重启比 24h 勤 → 倒计时永远归零、走不到头 → 澄永不被 dice 叫。
+
+**改法**（纯 `dice.js`，约 25 行）：把"下次触发时间点"持久化到 `server/.dice-next.json`（后端内部状态，不进 SANDBOX_DIR，CC 看不到）。`_scheduleNext()` 算好 delay 后 `writeNextFire(now+delay)`；新增 `_resume()` 替换 `start()` 里的 `_scheduleNext()`：读存档 → 没有就照常排新一轮；还没到点就只排**剩余时间**；已过点（停机期间到点）10 秒后补一轮。**新消息仍重置倒计时**（`resetOnMessage`→`_scheduleNext` 不变，按用户要求只让"重启"不重置、"新消息"照旧重置）。
+
+**验证**：`node --check` 过；连重启两次——第一次建档 `.dice-next.json`(next_fire_at=2026-06-27T01:35Z)+日志"下一轮 1440 分钟后"，第二次日志"**续上次倒计时，还剩 1440 分钟**"（不再重算）。两次重启澄进程都还是 pid 94779（6/21 起）→ **复用会话不失忆**。注意：interval 仍是 1440=24h，想让澄更频繁主动找人要另调 `dice_interval_min/max`（本条没动）。
+
+## 2026-06-26 · [后端][前端] WORLD_MESSAGE:face 接进聊天白气泡（Codex 改，本 CC 验证补记）
+
+**起因**：用户问"当面说话为啥聊天里看不到"。查清：`[WORLD_MESSAGE:face]`（澄跟小茉莉同屋当面说话）自 6/07 初版起**只写 `daily_timeline_cheng`、从不进聊天**——"face 白气泡"一直是 CHANGELOG/CSS 注释里的设计意图，前端从没接通（git 全史搜不到 `澄对小茉莉说话`/`message_type` 渲染）。所以澄当面想说的话只落进行程表，聊天里一条都看不到。
+
+**改法（Codex 实现，未提交）**：选用"抄 phone 那条验证过的管线"路线——
+- **后端 `index.js`**：face 分支新增 `sendWorldFaceMessage(content,{thinking})`：写 `messages` 表（`event='world_face'`、**不加 `-  ` 前缀、不推 Bark**、保留 thinking）+ `broadcast` 实时；**同时仍保留** `daily_timeline` 那条记录。phone 分支原样不动（蓝气泡 + Bark + `-  ` 前缀）。
+- **前端 `ChatPanel.jsx`**：WS `bark_msg` 实时处理把 `_isWM`(仅 world_message) 改成 `_isWorldMsg = world_message || world_face`，让 world_face **保留 event + thinking**、渲染成默认白气泡（旧逻辑会把它打成 bark 样式+丢 thinking）。刷新回放路径靠 `isPhoneMessage()` 不含 world_face + 无 `-  ` 前缀 → 白气泡。
+- 口径：**phone=蓝气泡+震手机；face=白气泡+不震手机**（用户拍板：当面没必要再震手机）。
+
+**本 CC 验证**：前后端 diff 逐项核对，`sendWorldFaceMessage`/前端 `_isWorldMsg` 两条路径都落白气泡、不误判蓝。⚠️ **端到端未实测**——库里 `event='world_face'` 消息为 0（澄要被世界事件唤醒+同屋+输出 `[WORLD_MESSAGE:face]` 才触发）。另注：本次改动混在 Codex 一大批未提交改动里（world-night/pulse-physiology/world-tick 等），那些**未逐条记账**，需 Codex 自行补。
+
+## 2026-06-25 · [基建] 建 world_night_interruptions_cheng 表（14B-2 夜间醒来/晨勃）
+
+按 `/root/memory-home/server/night-interruptions.sql` 在生产 Supabase（项目 `fgfyvyztjyqvxijfppgm`，与 cheng 同库）`apply_migration` 创建 `world_night_interruptions_cheng` 表，给 14B-2「夜间醒来/晨勃」状态机用。表 29 列（event_type 限 `dream_wake/morning_erection`，自身 status 限 `scheduled/triggered/resolved/cancelled`，body_intensity/sleep_depth/sleepiness_value/arousal_value 各带 check），2 个 partial unique index（同一 sleep_session_id 只能有 1 条 scheduled、1 条 live=triggered/resolved），RLS 开 + select/insert/update 三条 `true` policy。建表后核实：table_exists=1 / 29 列 / 3 索引 / RLS=on / 3 policy。
+
+另查 `world_sleep_state_cheng.status`：是纯 `text` 列，**没有 check constraint、也不是 enum**，本就接受任意值——`interrupted_awake` 无需任何改动即可写入。SQL 文件注释里「若 status 有 check 约束则扩展」的前提不成立，故**未**主动加约束（避免擅自给历史数据上枷锁）。只跑了 SQL，没动任何业务代码、没重启服务。
+
+## 2026-06-25 · [后端] Pulse 亲密自动扫描收窄
+
+修复亲密自动扫描关键词过宽的问题。原逻辑用 `text.includes()` 扫一组单字/短词，`做/叫/摸/亲/含/蹭/给我` 这类普通词会让“做饭/叫外卖/摸鱼/亲爱的”等日常句计分。现在拆为强关键词（如 `亲我/吻我/抱紧/贴着/揉/捏/舔/咬/插/顶/高潮/不要停/好舒服/喘/呻吟/玩具/道具`，每个 2 分）和弱词+上下文组合（如 `摸+腰/手心/皮肤`、`叫+出声/喘/呻吟`、`做+爱/继续/舒服`，每个 1 分）。进入亲密模式门槛从双方各 `score>0` 改为双方 3 分钟内都有信号、总分 `>=3`，并且至少一边命中强关键词，降低日常误触发。
+
+## 2026-06-25 · [后端] Pulse 亲密自动推进提速
+
+亲密模式不使用道具时，原推进刺激值为 `1 + (userScore + assistantScore) * 0.1`，按阶段公式跑完整个 0→7 阶段通常需要约 60-100 次澄回复，和实际聊天节奏偏慢。改为 `1.8 + (userScore + assistantScore) * 0.15`，仍保留阶段/进度条/高潮前 edge 机制，但无道具情况下预估降到约 40-62 次澄回复；文本若提前收尾，可用聊天心形面板的 `ending` 手动退出。
+
+## 2026-06-25 · [后端] Pulse 亲密道具 touch/sound 接入五感快照
+
+修复亲密道具的 `touch_mod/sound_mod` 只在 `advanceIntimate()` 里算出来、但没有进入 `getPhysiologySnapshot()` 的问题。`pulse-intimate.js` 的 `modCache` 现在包含 `hr/temp/touch/sound`，换道具时 `refreshModCache()` 会同时刷新四项；`getIntimateOverrides()` 返回 `senseMods`，`pulse-linkage.js` 在亲密模式快照里把 `senseMods.touch/sound` 叠到 `senses.touch/sound` 并限制在 0-1。这样世界自述里的触觉/听觉短语能真正吃到道具加成。
+
+## 2026-06-25 · [后端] 自述规则预览接入 Pulse 生理值 + 短语删除接口
+
+🔗 对应：world-home「自述规则面板补 Pulse 生理短语管理」(/root/world-home/CHANGELOG.md, 6/25)
+
+问题：world-home 准备开放 `heart_rate/body_temp/breath/sense_*` 的短语管理后，后端预览接口仍只把 `energy/satiety/cleanliness/health` 传给 `generateChengSelfNarration`，没有传 `getPhysiologySnapshot()`，所以 Pulse 生理短语不好在页面上预览；另外短语库只有新增/编辑/启停，没有真实删除接口。
+
+改动：`index.js` 给 `/api/world/narration/phrase/:id` 增加 `DELETE`；`/api/world/self-narration/preview` 取当前 Pulse 生理快照传入 `generateChengSelfNarration`，并允许 query 临时覆盖 `heart_rate/body_temp/breath/sense_touch/sense_smell/sense_taste/sense_sound`（体温兼容 37.0 或 370，五感兼容 0.3 或 30）。规则仍实时读表，预览不写库。
+
+## 2026-06-25 · [后端] Pulse 底色修正：happy 不再写长期残留
+
+按开源 Pulse 教程口径复核：`happy/focused/neutral` 属于正常/当前状态，不该写入“情绪底色”这种长期残留层。原实现里 `happy` 在 `BOTTOM_HALF_LIVES` 里，且 `raw.intensity > 0.5` 时会写成 `bottom_color_label=happy`，主要影响 `😄`、`感动` 这类 0.6 触发（`哈哈/嘻嘻/开心/😊` 因阈值通常不会写），影响不大但确实和教程不一致。
+
+改动：`pulse-emotion.js` 从 `BOTTOM_HALF_LIVES` 移除 `happy`，新增 `NO_BOTTOM_COLOR = happy/focused/neutral/calm` 并在 `writeBottomColor` 显式跳过。保留 `happy` 作为当前情绪，仍可影响当下生理；不挡 `intimate/excited`，它们仍可按原逻辑写底色。验证：`node --check pulse-emotion.js`、`node --check pulse-linkage.js` 通过。
+
+## 2026-06-25 · [后端] Pulse 状态持久化改成防抖落库 + 退出兜底 flush
+
+用户追问 Pulse 聊天/事件后的状态如果后端重启会不会丢。核实 forge/失忆只重启 CC 会话，不重启 Node 后端；真正风险是后端进程重启/崩溃时，聊天触发的 Pulse 内存状态还没落库。
+
+改动：
+- `pulse-linkage.js` 新增 `schedulePersist()` / `flushScheduledPulsePersist()`：聊天 `pulseOnChat` 和事件 `pulseOnEvent` 重算后不阻塞主链路，2 秒防抖排队持久化最新 Pulse state。
+- 心率历史改为随调度写入，但加 60 秒最小间隔，避免每条聊天刷 `pulse_hr_history_cheng`。
+- tick 每 5 次持久化改走同一调度器。
+- `index.js` 的 SIGTERM/SIGINT 正常退出钩子里先 `flushScheduledPulsePersist({ forceHistory:true })`，最多等 3 秒，再 detach/stop CC；覆盖 `systemctl restart` 这类正常重启的最后一笔。
+
+边界：突然崩溃、断电、`kill -9` 没有退出信号，仍只能靠平时 2 秒防抖落库降低风险。验证：`node --check pulse-linkage.js`、`node --check index.js` 通过。
+
+**补充（CC 复核 + 功能实测 6/25）**：核实改动前真实状态——`pulseOnChat`/`pulseOnEvent` 都只重算不落库，`writeHRHistory` 只在 tick 每 5 次写，且 `world_tick_enabled` 默认 false（tick 关着）+ 旧 `onExit` 不 flush，所以改之前**脉状态实际等于从不存盘**，每次重启清回默认（HR72/calm），心率历史一条没写过——比"容易丢"更严重。ChatGPT 三条修法方向全对。功能实测（独立进程跑磁盘新码打 Supabase）：①防抖——chat 后立刻查 DB 仍 calm/72，2.5s 后更新 happy/78.8；②限频——首条 chat 写 1 条历史，60s 内第二条不写（仍 1）；③退出 flush——forceHistory 绕过限频 +1。三项全绿。已 `systemctl restart cheng-backend` 加载（纯后端改动复用 tmux 会话，澄不失忆）。
+
+## 2026-06-25 · [后端] 脉 bug1 修法补强：道具修饰切换即生效 + 进持久化
+
+接上一条 bug1（道具/体位修饰缓存）的两个遗留短板（用户/ChatGPT 指出）：
+- **切换不立刻生效**：原修法 modCache 只在 `advanceIntimate` 时刷新，换道具/体位后要等下一次推进（每2轮一次）才变。修：新增 `refreshModCache()`（查当前道具体位 hr/temp offset 写缓存），`setActiveToys`/`setActivePosition` 改 async、改完即调；API 两路由（/intimate/toys、/intimate/position）改 `await`。
+- **重启丢缓存**：`getIntimateForPersist` 没含 modCache，重启后又得等推进。修：modCache + peakStage 一并进持久化（peakStage 原也漏了，会导致重启后退出亲密少算 energyDrain）。
+- 验证：进入(无道具)HR85 → 换 candle+cowgirl 不推进直接读 HR95（立刻生效）；持久化往返 modCache{hr:10,temp:0.35} 恢复后仍 95。API 端到端同样 85→95。后端 restart（澄失忆）。
+
+## 2026-06-25 · [后端/前端] 脉 Phase 5 复核修 5 个 bug（ChatGPT 审 + 验证）
+
+🔗 对应：world-home「IntimatePanel 修 _editing 入库报错」(/root/world-home/CHANGELOG.md, 6/25)
+
+ChatGPT 只读复核 Phase 5，挑出 5 处，全部核实属实并修复（reasoning effort 已切 xhigh）：
+
+1. **道具/体位修饰没生效**（pulse-intimate.js）：`advanceIntimate` 算出 toyMods/posMods 的 hr_offset/temp_offset，但 `getIntimateOverrides` 只读阶段预设、没叠加，导致道具体位对心率体温的修饰永远不进 `<此刻>`。**修法**（不改 async——getPhysiologySnapshot 是同步的，改 async 牵一串）：advance 把 `{hr,temp}` 缓存到 `intimate.modCache`，getIntimateOverrides 同步读缓存叠加。enter/exit 初始化清零。验证：candle+cowgirl → overrides HR+10/Temp+0.35。
+
+2. **`_editing` 字段发给 Supabase**（world-home/IntimatePanel.jsx）：点编辑时 `setEditToy({...t,_editing:true})` 的 UI 标记，保存时整对象 PUT 给后端 upsert，表里没这列 → 报 `Could not find the '_editing' column`，**保存直接失败**。修法：saveToy/savePos/saveCombo 发送前 `const {_editing,...payload}=...` 剥离。实测带 _editing 报错、剥离后入库成功。
+
+3. **pulse_hint 时序太晚**（index.js triggerWorldWake）：随机事件唤醒时，`<此刻>` 身体快照在第 763 行生成，但事件的 `pulseOnEvent`（写 spike+情绪）在第 802 行才调——**当次唤醒的身体描述看不到事件引起的心跳变化**，要等下次。修法：重排为 **busy/冷却检查 → eventForTurn → pulseOnEvent → 生成 nowBlock**。关键：放在 busy/冷却检查之后（ChatGPT 只说"挪到快照前"，漏了这点）——否则唤醒被 cc-busy/冷却作废时，spike 已写入会留脏数据（spike ~20s 衰减，影响小但仍修）。
+
+4. **pulseOnEvent 不重算 vitals**（pulse-linkage.js）：原来只写 emotion/spike，不调 recomputeVitals，快照里 HR/体温/呼吸仍是旧值。修法：函数加可选 `ctx={activity,weatherText,temperature}`，写完立刻 `recomputeVitals`。两处调用点都传 ctx（唤醒处传 status.activity+env 天气温度；选项结算处传 updatedStatus.activity）。验证：事件 nervous → HR 72→95、情绪 nervous。
+
+5. **天气温度被吞**（pulse-heart.js weatherHRDelta + pulse-body.js weatherTempDelta）：`if(!weatherText) return 0` 提前返回，导致有 temperature 但天气文本为空时温度完全不生效。修法：去掉早返回，温度独立参与。顺手修隐藏 bug——`temperature &&` 在温度恰为 0 时被当 falsy 跳过，改 `temperature != null`。验证：空文本+38度=+4、0度=+1。
+
+**验证**：5 文件 node --check 通过；单元测 bug1/4/5 全绿；API 端到端 bug1（HR99/Temp37.25）+ bug2（_editing 报错实锤、剥离入库）；world-home build 通过（**dist 未部署**，按规矩只 build）。后端已 restart（澄这次失忆）。
+
+**仍未做**（设计取舍，非 bug，ChatGPT 也说不急）：和弦系统、幻想/碎碎念心理层、亲密随机事件、双人遥控、IntimatePanel 实时监控面板（现在只是 CRUD 字典管理，离教程的"身体监控/遥控面板"还远）；心率只 3 类活动基线、happy 写底色（设计说不该写）、单 toy+position 组合技。
+
+## 2026-06-25 · [后端] 脉/Pulse 亲密系统（Phase 5）：8阶段推进 + 道具体位CRUD + 双向扫描自动触发 + 体力联动 + 前端♡工具栏
+
+🔗 对应：world-home「IntimatePanel 亲密数据编辑器」(/root/world-home/CHANGELOG.md, 6/25)
+
+**新增文件**：
+- `pulse-intimate.js`：亲密系统核心——8阶段sigmoid推进(前戏→挑逗→兴奋→强烈→高潮前→高潮→余韵→平复)，道具/体位/组合技从Supabase读加成(stim_value/touch_mod/sound_mod/hr_offset/temp_offset/stamina_drain)，边缘机制(stage 4 失败概率40%/30%/20%压制3次强制突破×3)，体力消耗(baseDrain=0.5+stage*0.3+posDrain)，进入/推进/退出/CRUD全套接口。
+- `cheng-memory/src/IntimateToolbar.jsx`：聊天输入框上方♡按钮，展开后多选道具+单选体位，亲密模式中显示阶段名+体力。
+
+**改动文件**：
+- `pulse-linkage.js`：新增双向亲密扫描——INTIMATE_KEYWORDS约50个中文关键词(亲/吻/舔/抽插/好舒服…)，`pulseIntimateUserScan(text)`记录用户侧信号，`pulseIntimateAssistantScan(text,energy)`记录澄侧信号+3分钟窗口双确认自动进入+每2轮chatCount推进一步+stage≥7自动退出+6分钟信号衰减。导出`getIntimateOverrides`。
+- `index.js`：新增17个API路由(/api/pulse/intimate/enter|advance|exit|state|overrides|toys|position + /api/pulse/toys|positions|combos的GET|PUT|DELETE)。修bug：enter路由原来没传`req.body?.energy`导致stamina永远100。亲密扫描接入：flushPendingToCC调user scan，turn_done调assistant scan(读character_status_cheng.energy做stamina初始化，exit时扣energy)。
+- `cheng-memory/src/ChatPanel.jsx`：引入IntimateToolbar组件。
+
+**Supabase数据**：3张表 pulse_intimate_toys/positions/combos_cheng，预填8道具(vibrator_small 0.8/vibrator_strong 1.2/feather 0.3/blindfold 0.4/ice_cube 0.5/candle 0.6/rope_soft 0.4/nipple_clamp 0.7) + 7体位(missionary drain0.4/cowgirl 0.8/doggy 0.6/spoon 0.2/sitting 0.5/standing 1.0/prone 0.3) + 7组合技。
+
+**体力联动**：enterIntimate(energy)→stamina=min(100,energy×1.2)；exitIntimate()→energyDrain=10+peakStage×3(前戏10/高潮25)，扣回character_status_cheng.energy。
+
+**测试验证(6/25)**：API全17端点通过(CRUD增删改查+enter/advance/exit/state/overrides/toys设置/position设置)；双向扫描单元测试通过(user+assistant关键词3分钟窗口→自动进入，每2轮推进)；formatPhysiology亲密覆盖确认(intimate active时HR/体温/呼吸走阶段预设不走正常公式)；前端build通过。
+
+**未做**：和弦系统/幻想系统/亲密随机事件/双人遥控速度控制（用户知晓待定）；系统提示未灌（澄还不知道亲密模式存在）；tick未开端到端未验。
+
+## 2026-06-23 · [基建/Supabase] 打捞召回也计入晋级：ref_count 改 numeric，普通搜索 +0.5（DB 函数 search_cheng）
+
+**背景**：用户发现"召回→晋级"因果是断的——晋级（`promote_cheng`：L1→L2 需 ref_count≥5、L2→L3 需≥10）卡的是 `ref_count`，但日常打捞（surfacing 的语义搜索，走 `search_cheng` 常规分支）**只 strength+0.05、不动 ref_count**；只有"按 id 精确取单条"（深触 `reinforce_cheng`）才 ref_count+1。数据印证 L1/L2 的 ref_count 几乎都停在 0/1，晋级基本永远触发不了。打捞定义：每发消息计数，攒满 COOLDOWN=5 轮才真搜一次，每次注入最相关≤3 条（向量为主：DashScope text-embedding-v2 转向量，search_cheng 混合打分 50%向量+15%strength+15%level+10%新鲜+10%关键词）。
+
+**改**（用户选"打捞算半个、深触算一个"的梯度）：Supabase 迁移 `ref_count_numeric_soft_recall_half`：
+- `ALTER memories_cheng.ref_count` integer→**numeric**（整数列存不了 0.5）。
+- 重建活跃版 `search_cheng(...,p_embedding vector)`：RETURNS TABLE 的 ref_count→numeric；常规搜索 + 时间范围两处轻触 UPDATE 从 `strength+0.05` 加成 `strength+0.05, ref_count+0.5`（仍限 `NOT pinned AND level<3`）。深触 `reinforce_cheng` 不动（仍 ref_count+1、strength+0.5）。
+- 晋级门槛 5/10 **不变**，现含义=集够 5 分/10 分（10 次打捞=5 次深触=5 分）。`daily_maintenance_cheng`（pg_cron jobid 6，每天 05:00 UTC，近 5 天均 succeeded）照常跑 decay+cleanup+promote。
+- 验证：搜 '小茉莉' 命中的 L2 记忆 ref_count 0→0.5；L3 不动（level<3 限制）。前端记忆卡「引用 N」直接读表，自然显示小数（0.5/1.5…），排序/回响按 numeric 仍正常，无需改前端。
+- **未动**：无 p_embedding 的 7 参 `search_cheng` 重载没改（边缘函数恒传 p_embedding 走 8 参版，7 参版实际不被调用，留旧行为）。
+
+## 2026-06-23 · [前端] 修设置侧栏移动端弹键盘后滚不动（ChatPanel.jsx 内联CSS）
+
+**现象**：参数设置面板在手机上弹出键盘后界面像被固定、往下滑不动，看不到键盘下方的输入框。
+
+**真因**：`.cp-sidebar` 是 `position:fixed; top:0; bottom:0` 钉死布局视口高；手机弹键盘时布局视口不缩，`.cp-sidebar-scroll`(flex:1) 算出来"高度够"不溢出→不触发滚动，下方输入框被键盘盖住又滚不到。
+
+**改**：①`.cp-sidebar` 加 `height:100dvh`（键盘弹起跟随动态视口收缩；不支持 dvh 的旧浏览器退回 top/bottom:0 兜底）；②`.cp-sidebar-scroll` 加 `min-height:0`（flex 子项能收缩才滚得动）+ `-webkit-overflow-scrolling:touch` + 底部留白 `24px→320px`（保证能把下方输入框顶到键盘上方）。纯 CSS、`npm run build` 过，不重启后端。
+
+## 2026-06-22 · [前端+后端] forge 摘要长度从 localStorage 单值 → config.json 可编辑区间（手动 forge 生效）
+
+**背景**：用户问"forge 触发/截断/保留/摘要长度/思绪比例 这几个设置跟后端对不对得上"。查证结论：①`trigger_threshold`②`retain_tokens`③`thinking_keep_ratio` 三个走 `/api/forge/config` 读写 `/root/forge-reload/config.json`，前后端同源 ✅；④「截断触发值」=前端 `compressThreshold`（localStorage，仅"右上角数字变红"预警，不驱动 forge）；⑤「摘要长度」= 前端 `summaryLength`（localStorage 单值，默认 500），**只手动 forge 透传、自动 forge 读不到**。另查实：**自动 forge 守护 `forge-monitor.service` 早已停**（inactive/not-found，日志停在 2026-05-13），用户确认只用手动 forge。
+
+**真因**：`summaryLength` 是历史遗留——原本是前端偏好，发起手动 forge 时随 `/api/cc/restart` body 透传给 `generateForgeSummary`；从没搬进 `config.json`，所以①是单值不是区间②自动 forge（daemon 只读 config）拿不到。
+
+**改**（只做手动 forge，按用户"区间可自己编辑并生效"）：
+- `/root/forge-reload/config.json`：加 `summary_min:1000, summary_max:1100`。
+- `memory-home/server/index.js`：①`generateForgeSummary` 改读 config 的 `summary_min/max`，prompt 从"约 N 字"→"`lo`–`hi` 字之间"（旧 `summaryLength` 仅作兜底，钳 100~5000）；②`GET /api/forge/config` 多返 `summary_min/max`；③`PUT /api/forge/config` 接受校验 `summary_min/max`（100~5000、min≤max）。
+- `cheng-memory/src/ChatPanel.jsx`：forge state 读 `summary_min/max`；设置面板「摘要长度（字）」单 input → 「摘要长度区间」下限–上限两 input（绑 `forge.summary_min/max`、`setForge`）；`save()` PUT 带上区间。旧 `s.summaryLength`（localStorage）保留但对 forge 已失效。
+- 后端 `systemctl restart cheng-backend`（纯代码改动，复用 tmux 不失忆）active；前端 `npm run build` 过。值改了即时生效（每次 forge 现读 config，无需重启）。GET 走鉴权（curl 裸调返 unauthorized 属正常）。
+- **没做**：自动 forge 摘要（daemon 是"先截后重启"、重启时已看不到被截内容，要补摘要得改 forge 流程；且 daemon 本就停着）；前端「截断触发值」没动（用户说留着）。
+
+## 2026-06-21 · [前端+后端] 唤醒轮询(DICE)上下限天花板 120→1440（WakePanel.jsx + index.js）
+
+**现象**：用户之前让 CC 把唤醒轮询上下限设成 1440，现在又变回 120。
+
+**真因**：不是被"改回来"，是 1440 从没真生效过。轮询=DICE，上下限有两道写死 120 的卡子从没动：①前端滑块 `WakePanel.jsx` 轮询下限/上限两个 `<input type=range>` 都是 `min=5 max=120`，物理拖不过 120；②后端校验 `index.js` PUT `/api/dice/config` 里 `dice_interval_min/max` `>120` 直接 400 拒。之前那次多半只手改了 `config.json` 的值到 1440，但滑块 max=120 装不下→面板一加载夹到 120，再点保存就把 120 发回去覆盖掉（`save()` 发的是滑块值）；就算直接 PUT 1440 后端也 400 打回。所以值迟早被拉回 ≤120。
+
+**改**：①`cheng-memory/src/WakePanel.jsx:455,460` 两个滑块 `max={120}`→`max={1440}`（step 仍 5）；②`memory-home/server/index.js:3533,3541` 两处校验 `v > 120`→`v > 1440`，报错文案同步改 5~1440；③`/root/forge-reload/config.json` `dice_interval_min/max` 恢复 1440/1440。前端 `npm run build` 过；后端 `systemctl restart cheng-backend`（纯后端代码改动，复用旧 tmux 不失忆），active。DICE daemon `dice.js:93-94` 每轮读 cfg 取 interval，重启后即按 1440 跑。
+
+---
+
+## 2026-06-20 · [前端] 聊天web 加独立深色开关（cheng-memory ChatPanel.jsx）
+
+**现象**：在记忆库web（主壳B `/`）切深色，聊天web（`/chat/`）不跟，重开也不变。
+
+**真因**：两者是两个独立 PWA（`manifest.json` vs `manifest-chat.json`），iOS 同源也不共享 localStorage，记忆库写的 `chat-theme` 到不了聊天web；而聊天web 侧栏 `SidebarScreens` 虽收了 `theme/setTheme` 参数、深色样式（`.cp-root[data-theme="dark"]` + index.css token）也全现成，却**从没渲染任何切换 UI**——所以聊天web 一直没法自己变深色。
+
+**改（方案A：各管各的，不碰后端）**：在聊天侧栏主菜单「统计」那组加一个「外观」入口 → 新增 `screen === "theme"` 子屏，三选「浅色/深色/跟随系统」，点了调现成的 `setTheme`（它已写 `chat-theme` + 经 `useTheme` 把 `data-theme` 落到 `<html>` 和 `.cp-root`）。样式照搬记忆库 `ThemePanel`。纯前端，`npm run build` 已过，不重启。
+
+**注**：这是 A 不是 B——聊天web 和记忆库各有各的开关、互不同步。若以后要「设一次两边都跟」，得走后端存主题（B，未做）。用户当时明确选 A。transcript 关键词：「记忆库web的外观管不到聊天web」「aaaaaaaaa」。
+
+---
+
 ## 2026-06-17 · [后端] 同房间时 <此刻> 明说"当面说话不是发消息"（world-narration.js）
 
 **现象**：澄走 face（同房间白气泡）时回话还像发短信，自己也懵"都一个房间了怎么还发短信"。根因：`<此刻>` 同房间只说"小茉莉在我旁边，正X"，有"在旁边"但没明说"这是当面说话"，澄默认按聊天=短信的腔调来。
